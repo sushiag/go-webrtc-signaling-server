@@ -11,6 +11,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	serverPort = ":8080" // you can change the port to 443
+	certFile   = "cert.pem"
+	keyFile    = "key.pem"
+	serverHost = "localhost" // you can change this to your domain
+	authToken  = "your-secret-token"
+)
+
 type Client struct {
 	ID   string
 	Conn *websocket.Conn
@@ -32,6 +40,7 @@ var (
 	Mutex sync.Mutex
 )
 
+// this is the auth middleware
 func authenticate(r *http.Request) bool {
 	token := r.Header.Get("Sec-Websocket-Protocol")
 	return token == "replace-with-your-actual-token"
