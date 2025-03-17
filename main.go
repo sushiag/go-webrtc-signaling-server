@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -37,7 +38,7 @@ var upgrader = websocket.Upgrader{
 }
 var (
 	rooms = make(map[string]*Room)
-	Mutex sync.Mutex
+	Mtx   sync.Mutex
 )
 
 // this is the auth middleware
@@ -64,21 +65,23 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Println("A new client has connected: ", clientID)
+	defer disconnectClient(client)
+	readMessages(client)
 
-	go readMessages(client)
+}
 
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Client disconnected", err)
-			room := rooms[client.Room]
+func disconnectClient(client *Client) {
+	if client.Room != "" {
+		Mtx.Lock()
+		room, exists := rooms[client.Room]
+		if exists {
 			room.Mutex.Lock()
-			delete(room.Clients, clientID)
+			delete(room.Clients, client.ID)
 			room.Mutex.Unlock()
-			// this securely removes the client
-			break
 		}
+		log.Printf("Client disconnected:  %s", client.ID)
 	}
+
 }
 func readMessages(client *Client) {
 	defer client.Conn.Close()
@@ -88,18 +91,27 @@ func readMessages(client *Client) {
 			log.Println("Error in Reading Message:", err)
 			break
 		}
-		fmt.Println("Received:", string(message))
+		fmt.Printf("Received: from %s: %s\n", client.ID, string(message))
 	}
 }
 
 func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", handler)
 
-	http.HandleFunc("/ws", handler)
-	httpServer := &http.Server{
-		Addr:         ":8080", // port address for https
+	server := &http.Server{
+		Addr:         serverPort, // port address in const
+		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
 	}
-	log.Println("running on localhost: 8080, press CTRL+C to exit")
-	log.Fatal(httpServer.ListenAndServeTLS("cert.pem", "key.pem"))
+	log.Println("running securely on server: press CTRL+C to exit")
+
+	err := server.ListenAndServeTLS(certFile, keyFile)
+	if err != nil {
+		log.Fatal(server.ListenAndServeTLS("cert.pem", "key.pem"))
+	}
 }
