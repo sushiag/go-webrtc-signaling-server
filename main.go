@@ -111,7 +111,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		for {
-			time.Sleep(10 * time.Second)
+			time.Sleep(10 * time.Second) // receive pong
 			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				log.Println("Ping failed, closing connection:", err)
 				client.Conn.Close()
@@ -120,6 +120,25 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	readMessages(client)
+}
+
+func broadcastMessage(roomID, senderID string, message []byte) {
+	Mtx.Lock()
+	room, exist := rooms[roomID]
+	Mtx.Unlock()
+
+	if !exist {
+		log.Println("Room does not exist:", roomID)
+		return
+	}
+
+	room.Mutex.Lock()
+	defer room.Mutex.Unlock()
+	for id, client := range room.Clients {
+		if id != senderID { // to no send the message back to senderID
+			client.Conn.WriteMessage(websocket.TextMessage, message)
+		}
+	}
 }
 
 func main() {
