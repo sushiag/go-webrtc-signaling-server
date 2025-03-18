@@ -1,10 +1,14 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -37,14 +41,52 @@ var upgrader = websocket.Upgrader{
 	},
 }
 var (
-	rooms = make(map[string]*Room)
-	Mtx   sync.Mutex
+	rooms   = make(map[string]*Room)
+	Mtx     sync.Mutex
+	hmacKey = []byte(os.Getenv("HMAC_Secret")) // hash-based message authentication code, to encrypt a secret key
 )
 
 // this is the auth middleware
 func authenticate(r *http.Request) bool {
-	token := r.Header.Get("Sec-Websocket-Protocol")
-	return token == "replace-with-your-actual-token"
+	sentToken := r.Header.Get("X-Auth=Token")
+	expectedToken := generateHMACToken()
+	return sentToken == expectedToken
+}
+
+func disconnectClient(client *Client) {
+	if client.Room != "" {
+		Mtx.Lock()
+		room, exists := rooms[client.Room]
+		if exists {
+			room.Mutex.Lock()
+			delete(room.Clients, client.ID)
+			room.Mutex.Unlock()
+		}
+		log.Printf("Client disconnected:  %s", client.ID)
+	}
+
+}
+
+func readMessages(client *Client) {
+	client.Conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	client.Conn.SetPongHandler(func(string) error {
+		client.Conn.SetReadDeadline(time.Now().Add(40 * time.Second))
+		return nil
+	})
+	for {
+		_, message, err := client.Conn.ReadMessage()
+		if err != nil {
+			log.Println("Error in Reading Message:", err)
+			break
+		}
+		fmt.Printf("Received: from %s: %s\n", client.ID, string(message))
+	}
+}
+
+func generateHMACToken() string {
+	hash := hmac.New(sha256.New, hmacKey)
+	hash.Write([]byte("fixed-data"))
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -66,36 +108,22 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("A new client has connected: ", clientID)
 	defer disconnectClient(client)
+
+	go func() {
+		for {
+			time.Sleep(10 * time.Second)
+			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Println("Ping failed, closing connection:", err)
+				client.Conn.Close()
+				break
+			}
+		}
+	}()
 	readMessages(client)
-
-}
-
-func disconnectClient(client *Client) {
-	if client.Room != "" {
-		Mtx.Lock()
-		room, exists := rooms[client.Room]
-		if exists {
-			room.Mutex.Lock()
-			delete(room.Clients, client.ID)
-			room.Mutex.Unlock()
-		}
-		log.Printf("Client disconnected:  %s", client.ID)
-	}
-
-}
-func readMessages(client *Client) {
-	defer client.Conn.Close()
-	for {
-		_, message, err := client.Conn.ReadMessage()
-		if err != nil {
-			log.Println("Error in Reading Message:", err)
-			break
-		}
-		fmt.Printf("Received: from %s: %s\n", client.ID, string(message))
-	}
 }
 
 func main() {
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", handler)
 
