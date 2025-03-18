@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/pion/webrtc/v3"
 )
 
 const (
@@ -35,20 +35,21 @@ type Room struct {
 	Mutex   sync.Mutex
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return r.Host == "insert-your-domain-here.com"
-	},
-}
 var (
+	upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return r.Host == "insert-your-domain-here.com"
+		},
+	}
 	rooms   = make(map[string]*Room)
 	Mtx     sync.Mutex
 	hmacKey = []byte(os.Getenv("HMAC_Secret")) // hash-based message authentication code, to encrypt a secret key
+	clients = make(map[string]*websocket.Conn) // declared as global variable to track the connected clients
 )
 
 // this is the auth middleware
 func authenticate(r *http.Request) bool {
-	sentToken := r.Header.Get("X-Auth=Token")
+	sentToken := r.Header.Get("X-Auth-Token")
 	expectedToken := generateHMACToken()
 	return sentToken == expectedToken
 }
@@ -80,6 +81,9 @@ func readMessages(client *Client) {
 			break
 		}
 		fmt.Printf("Received: from %s: %s\n", client.ID, string(message))
+		if client.Room != "" {
+			broadcastMessage(client.Room, client.ID, message)
+		}
 	}
 }
 
@@ -87,6 +91,18 @@ func generateHMACToken() string {
 	hash := hmac.New(sha256.New, hmacKey)
 	hash.Write([]byte("fixed-data"))
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func initializePeerConnection() (*webrtc.PeerConnection, error) {
+	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.1.google.com:19302"}}, // stun server, helps devices behind NATs discover their IP address (public)
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create a peer connection: %v", err)
+	}
+	return peerConnection, nil
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -99,15 +115,22 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		log.Println("failed to upgrade to websocket connection", err)
 		return
 	}
+	defer conn.Close()
 
-	clientID := uuid.New().String()
-	client := &Client{
-		ID:   clientID,
-		Conn: conn,
-	}
+	clientID := r.RemoteAddr // using Client ID
+	client := &Client{ID: clientID, Conn: conn}
+	Mtx.Lock()
+	clients[clientID] = conn
+	Mtx.Unlock()
 
 	log.Println("A new client has connected: ", clientID)
 	defer disconnectClient(client)
+
+	peerConnection, err := initializePeerConnection()
+	if err != nil {
+		log.Println("Failed to initialize WebRTC connection:", err)
+		return
+	}
 
 	go func() {
 		for {
@@ -120,6 +143,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	readMessages(client)
+	defer peerConnection.Close()
 }
 
 func broadcastMessage(roomID, senderID string, message []byte) {
