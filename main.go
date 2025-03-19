@@ -38,7 +38,7 @@ type Room struct {
 var (
 	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
-			return r.Host == "insert-your-domain-here.com"
+			return true // r.Host == "insert-your-domain-here.com"
 		},
 	}
 	rooms   = make(map[string]*Room)

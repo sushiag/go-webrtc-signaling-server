@@ -4,13 +4,11 @@ go 1.23.5
 
 require github.com/gorilla/websocket v1.5.3
 
-require (
-	github.com/google/uuid v1.6.0
-	github.com/pion/webrtc/v3 v3.3.5
-)
+require github.com/pion/webrtc/v3 v3.3.5
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/pion/datachannel v1.5.8 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/ice/v2 v2.3.36 // indirect

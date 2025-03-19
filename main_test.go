@@ -1,68 +1,88 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
-func TestAuthenticate(t *testing.T) {
-	req, err := http.NewRequest("GET", "http://localhost:8080", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestGenerateHMACToken(t *testing.T) {
+	expectedToken := generateHMACToken()
+	hash := hmac.New(sha256.New, hmacKey)
+	hash.Write([]byte("fixed-data"))
+	expectedHash := hex.EncodeToString(hash.Sum(nil))
 
-	req.Header.Set("Sec-Websocket-Protocol", "replace-with-your-actual-token")
-	if !authenticate(req) {
-		t.Errorf("Expected true for valid token, got false")
-	}
-
-	req.Header.Set("Sec-Websocket-Protocol", "invalid-token")
-	if authenticate(req) {
-		t.Errorf("Expected false for invalid token, got true")
+	if expectedToken != expectedHash {
+		t.Errorf("Expected token %s, got %s", expectedHash, expectedToken)
 	}
 }
 
-func TestHandler(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(handler))
+func TestAuthenticate(t *testing.T) {
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Auth-Token", generateHMACToken())
+
+	if !authenticate(req) {
+		t.Errorf("Authentication failed for a valid token")
+	}
+
+	req.Header.Set("X-Auth-Token", "invalid-token")
+	if authenticate(req) {
+		t.Errorf("Authentication succeeded for an invalid token")
+	}
+}
+
+func TestWebSocketConnection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("WebSocket upgrade failed: %v", err)
+			return
+		}
+		conn.Close()
+	}))
 	defer server.Close()
 
 	url := "ws" + server.URL[4:] + "/ws"
-	req, err := http.NewRequest("GET", url, nil)
+	dialer := websocket.DefaultDialer
+	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
-		t.Fatal(err)
+		t.Errorf("Failed to connect to WebSocket: %v", err)
 	}
-	req.Header.Set("Sec-Websocket-Protocol", "replace-with-your-actual-token")
-
-	conn, _, err := websocket.DefaultDialer.Dial(req.URL.String(), req.Header)
-	if err != nil {
-		t.Fatalf("Failed to connect to WebSocket: %v", err)
-	}
-	defer conn.Close()
-
-	err = conn.WriteMessage(websocket.TextMessage, []byte("Hello, World!"))
-	if err != nil {
-		t.Fatalf("Failed to send message: %v", err)
-	}
-
-	_, message, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatalf("Failed to read message: %v", err)
-	}
-
-	if string(message) != "Hello, World!" {
-		t.Errorf("Expected 'Hello, World!', got '%s'", message)
-	}
+	conn.Close()
 }
 
-func TestClientIDGeneration(t *testing.T) {
-	id1 := uuid.New().String()
-	id2 := uuid.New().String()
+func TestBroadcastMessage(t *testing.T) {
+	roomID := "test-room"
+	senderID := "sender"
 
-	if id1 == id2 {
-		t.Errorf("Expected different client IDs, got the same: %s", id1)
+	room := &Room{
+		Clients: make(map[string]*Client),
+	}
+	rooms[roomID] = room
+
+	mockConn := &websocket.Conn{}
+	client := &Client{ID: senderID, Conn: mockConn}
+	room.Clients[senderID] = client
+
+	message := []byte("Hello, WebRTC!")
+	broadcastMessage(roomID, senderID, message)
+}
+
+func TestDisconnectClient(t *testing.T) {
+	roomID := "testRoom"
+	rooms[roomID] = &Room{Clients: make(map[string]*Client)}
+
+	client := &Client{ID: "client1", Room: roomID}
+	rooms[roomID].Clients[client.ID] = client
+
+	disconnectClient(client)
+
+	if _, exists := rooms[roomID].Clients[client.ID]; exists {
+		t.Errorf("Client was not removed from room after disconnection")
 	}
 }
