@@ -13,15 +13,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 	"github.com/pion/webrtc/v3"
-)
-
-const (
-	serverPort = ":8080" // you can change the port to 443
-	certFile   = "cert.pem"
-	keyFile    = "key.pem"
-	serverHost = "localhost" // you can change this to your domain
-	authToken  = "your-secret-token"
 )
 
 type Client struct {
@@ -166,6 +159,15 @@ func broadcastMessage(roomID, senderID string, message []byte) {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Error on loading your .env file:", err)
+	}
+	serverPort := ":" + os.Getenv("SERVER_PORT")
+	serverHost := os.Getenv("SERVER_HOST")
+	certFile := os.Getenv("CERT_FILE")
+	keyFile := os.Getenv("KEY_FILE")
+	// fixed .env variables
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", handler)
@@ -179,9 +181,8 @@ func main() {
 			MinVersion: tls.VersionTLS12,
 		},
 	}
-	log.Println("running securely on server: press CTRL+C to exit")
-
-	err := server.ListenAndServeTLS(certFile, keyFile)
+	log.Printf("running securely on server: %s%s press CTRL+C to exit", serverHost, serverPort)
+	err = server.ListenAndServeTLS(certFile, keyFile)
 	if err != nil {
 		log.Fatal(server.ListenAndServeTLS("cert.pem", "key.pem"))
 	}
