@@ -53,7 +53,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		wsManager.HandleConnection(w, r, authenticate)
+		wsManager.Handler(w, r, authenticate)
 	})
 
 	log.WithField("port", serverPort).Info("Server is running. Press CTRL+C to exit.")

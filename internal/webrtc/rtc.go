@@ -2,13 +2,12 @@ package webrtc
 
 import (
 	"fmt"
-	"go-webrtc-signaling-server/internal/webrtc"
+
+	"github.com/sushiag/go-webrtc-signaling-server/internal/webrtc"
 
 	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/piom/webrtc/v3"
-	"github.com/pion/webrtc/v3"
 )
 
 func LoadSTUNServer() string {
