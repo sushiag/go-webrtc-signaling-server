@@ -1,7 +1,9 @@
 package webrtc
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 
 	"os"
 
@@ -30,5 +32,26 @@ func InitializePeerConnection() (*webrtc.PeerConnection, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create peer connection: %v", err)
 	}
+
+	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c != nil {
+			candidate := c.ToJSON()
+			candidateJSON, _ := json.Marshal(candidate)
+			log.Println("[ICE] New candidate:", string(candidateJSON))
+		}
+	})
+
+	peerConnection.OnNegotiationNeeded(func() {
+		log.Println("[SDP] Negotiation needed")
+	})
+
+	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		log.Println("[WebRTC] New track received:", track.Kind())
+	})
+
+	peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		log.Printf("[STATE] Connection state changed to: %s", state.String())
+	})
+
 	return peerConnection, nil
 }

@@ -67,26 +67,31 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, auth
 }
 
 func (wm *WebSocketManager) readMessages(client *room.Client) { //listens for messages from the clients
+	log.Printf("[WS] client %s has start readin messages. \n ", client.ID)
 	for {
 		_, message, err := client.Conn.ReadMessage()
 		if err != nil {
-			log.Println("[WS] Read error:", err)
+			log.Printf("[WS] Client %s encountered an error: %v\n", client.ID, err)
 			break
 		}
 
 		var msg Message // skips if no error
 		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Println("[WS] JSON unmarshal erro:", err)
+			log.Printf("[WS] Client %s send an invalid message format: %s\n", client.ID, string(message))
 			continue
 		}
 
+		log.Printf("[WS] Client %s sent a '%s': %s\n ", client.ID, msg.Type, msg.Content)
+
 		switch msg.Type {
 		case "join":
+			log.Printf("[WS] Client %s has joining the room %s. \n ", client.ID, msg.RoomID)
 			wm.roomManager.AddClient(msg.RoomID, client)
-		case "message":
+		case "offer", "asnwer", "ice-candidate":
+			log.Printf("[WS] Client %s is forwarding a '%s' message to room %s. \n", client.ID, msg.Type, msg.RoomID)
 			wm.roomManager.BroadcastMessage(msg.RoomID, client.ID, []byte(msg.Content))
 		default:
-			log.Println("[WS] unknown message type:", msg.Type)
+			log.Printf("[WS] Client sent %s unknown message type: %s\n", client.ID, msg.Type)
 		}
 	}
 }
