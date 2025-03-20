@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -35,14 +36,28 @@ func generateHMACToken() string {
 
 // authenticate checks API key authentication
 func authenticate(r *http.Request) bool {
-	sentToken := r.Header.Get("X-Auth-Token")
-	expectedToken := generateHMACToken()
+	sentToken := r.Header.Get("X-Auth-Token") // Get token from headers
+	expectedToken := generateHMACToken()      // Generate expected token
+
+	log.WithFields(logrus.Fields{
+		"expected_token": expectedToken,
+		"sent_token":     sentToken,
+	}).Warn("Authentication attempt")
 
 	if sentToken != expectedToken {
 		log.Warn("Unauthorized access attempt!")
 		return false
 	}
 	return true
+}
+
+func authHandler(w http.ResponseWriter, r *http.Request) {
+	if !authenticate(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"message": "Authorized"}`))
 }
 
 func main() {
@@ -52,11 +67,14 @@ func main() {
 	wsManager := websocket.NewWebSocketManager(allowedOrigin)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler) // Add this
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		wsManager.Handler(w, r, authenticate)
 	})
 
 	log.WithField("port", serverPort).Info("Server is running. Press CTRL+C to exit.")
+	expectedToken := generateHMACToken()
+	fmt.Println("Expected Token:", expectedToken)
 
 	if err := http.ListenAndServe(serverPort, mux); err != nil {
 		log.WithError(err).Fatal("Server failed to start")
