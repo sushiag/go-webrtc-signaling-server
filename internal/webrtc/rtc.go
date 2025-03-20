@@ -3,11 +3,10 @@ package webrtc
 import (
 	"fmt"
 
-	"github.com/sushiag/go-webrtc-signaling-server/internal/webrtc"
-
 	"os"
 
 	"github.com/joho/godotenv"
+	"github.com/pion/webrtc/v4"
 )
 
 func LoadSTUNServer() string {
@@ -21,8 +20,8 @@ func LoadSTUNServer() string {
 
 func InitializePeerConnection() (*webrtc.PeerConnection, error) {
 	stunServer := LoadSTUNServer()
-	config := []webrtc.Configuration{
-		ICEServer: []webrtc.ICEServer{
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{stunServer}},
 		},
 	}

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/sushiag/go-webrtc-signaling-server/internal/room"
@@ -73,14 +74,42 @@ func (wm *WebSocketManager) readMessages(client *room.Client) { //listens for me
 			break
 		}
 
-		var msg Message
-		json.Unmarshal(message, &msg)
+		var msg Message // skips if no error
+		if err := json.Unmarshal(message, &msg); err != nil {
+			log.Println("[WS] JSON unmarshal erro:", err)
+			continue
+		}
 
 		switch msg.Type {
 		case "join":
 			wm.roomManager.AddClient(msg.RoomID, client)
 		case "message":
 			wm.roomManager.BroadcastMessage(msg.RoomID, client.ID, []byte(msg.Content))
+		default:
+			log.Println("[WS] unknown message type:", msg.Type)
+		}
+	}
+}
+
+func (wm *WebSocketManager) disconnectClient(client *room.Client) {
+	wm.clientMtx.Lock()
+	defer wm.clientMtx.Unlock()
+
+	delete(wm.clients, client.ID)
+	log.Println("[WS] cLient has disconnected:", client.ID)
+}
+
+func (wm *WebSocketManager) sendPings(client *room.Client) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := client.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				log.Println("[WS] Ping error:", err)
+				return
+			}
 		}
 	}
 }
