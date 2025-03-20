@@ -103,13 +103,10 @@ func (wm *WebSocketManager) sendPings(client *room.Client) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := client.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				log.Println("[WS] Ping error:", err)
-				return
-			}
+	for range ticker.C {
+		if err := client.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+			log.Println("[WS] Ping error:", err)
+			return
 		}
 	}
 }
