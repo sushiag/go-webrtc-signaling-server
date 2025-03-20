@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"os"
 
-	"../internal/websocket"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
+	"github.com/sushiag/go-webrtc-signaling-server/internal/websocket"
 )
 
 var log = logrus.New()

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"sync"
 
-	"../internal/room"
 	"github.com/gorilla/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/internal/room"
 )
 
 type Message struct {
