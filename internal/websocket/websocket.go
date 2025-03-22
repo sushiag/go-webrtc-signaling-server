@@ -66,7 +66,7 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, auth
 	wm.readMessages(client)
 }
 
-func (wm *WebSocketManager) SendToRoom(roomID, senderID string, messege Message) {
+func (wm *WebSocketManager) SendToRoom(roomID, senderID string, message Message) {
 	log.Printf("[WS] Sending message to room % from %s\n", roomID, senderID)
 
 	data, err := json.Marshal(message)
