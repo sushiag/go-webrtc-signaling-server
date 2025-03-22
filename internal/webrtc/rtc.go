@@ -21,7 +21,7 @@ func LoadSTUNServer() string {
 	return stunServer
 }
 
-func InitializePeerConnection() (*webrtc.PeerConnection, error) {
+func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID string) (*webrtc.PeerConnection, error) {
 	stunServer := LoadSTUNServer()
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
