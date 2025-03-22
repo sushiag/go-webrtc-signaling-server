@@ -9,6 +9,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/pion/webrtc/v4"
+	"github.com/sushiag/go-webrtc-signaling-server/internal/websocket"
 )
 
 func LoadSTUNServer() string {
@@ -37,7 +38,12 @@ func InitializePeerConnection() (*webrtc.PeerConnection, error) {
 		if c != nil {
 			candidate := c.ToJSON()
 			candidateJSON, _ := json.Marshal(candidate)
-			log.Println("[ICE] New candidate:", string(candidateJSON))
+
+			message := websocket.Message{
+				Type:    "Ice-candidate",
+				Content: string(candidateJSON),
+			}
+			wm.SendToRoom(roomID, clientID, message)
 		}
 	})
 

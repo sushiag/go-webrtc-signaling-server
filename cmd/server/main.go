@@ -4,7 +4,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -27,17 +26,26 @@ func init() {
 }
 
 // generateHMACToken creates an HMAC-based token
-func generateHMACToken() string {
+func generateHMACToken(clientID string) string {
 	hmacKey := []byte(os.Getenv("HMAC_SECRET"))
+	if len(hmacKey) == 0 {
+		log.Fatal("HMAC_SECRET is not set environmental vairables")
+	}
 	hash := hmac.New(sha256.New, hmacKey)
-	hash.Write([]byte("fixed-data"))
+	hash.Write([]byte(clientID)) // use clientID instead of fixed data
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // authenticate checks API key authentication
 func authenticate(r *http.Request) bool {
 	sentToken := r.Header.Get("X-Auth-Token") // Get token from headers
-	expectedToken := generateHMACToken()      // Generate expected token
+	clientID := r.Header.Get("X-Client-ID")   //client unique identifiier
+	if clientID == "" {
+		log.Warn("Missing client ID")
+		return false
+	}
+
+	expectedToken := generateHMACToken(clientID) // Generate expected token
 
 	log.WithFields(logrus.Fields{
 		"expected_token": expectedToken,
@@ -73,8 +81,6 @@ func main() {
 	})
 
 	log.WithField("port", serverPort).Info("Server is running. Press CTRL+C to exit.")
-	expectedToken := generateHMACToken()
-	fmt.Println("Expected Token:", expectedToken)
 
 	if err := http.ListenAndServe(serverPort, mux); err != nil {
 		log.WithError(err).Fatal("Server failed to start")
