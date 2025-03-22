@@ -57,8 +57,29 @@ func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID s
 		log.Println("[WebRTC] New track received:", track.Kind())
 	})
 
-	peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("[STATE] Connection state changed to: %s", state.String())
+	peerConnection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		log.Printf("[ICE] Connection state changed to: %s", state.String())
+
+		switch state {
+		case webrtc.ICEConnectionStateFailed:
+			log.Println("[ICE] connection failed. restart attemping:")
+			offer, err := peerConnection.CreateOffer(&webrtc.OfferOptions{ICERestart: true})
+			if err != nil {
+				log.Println("[ICE] failed to create restart offer:", err)
+				return
+			}
+			peerConnection.SetLocalDescription(offer)
+			wm.SendToRoom(roomID, clientID, websocket.Message{
+				Type:    "offer",
+				RoomID:  roomID,
+				Sender:  clientID,
+				Content: string(offer.SDP),
+			})
+		case webrtc.ICEConnectionStateDisconnected:
+			log.Println("[ICE] Disconnected, checking if reconnection is possible..")
+
+		}
+
 	})
 
 	return peerConnection, nil
