@@ -4,33 +4,49 @@ package ffi
 #cgo CFLAGS: -I./
 #cgo LDFLAGS: -L./ -lwebrtc
 #include <stdio.h>
-void StartWebRTC();
+void ReceiveMessageFromGo(const char* msg);
 */
+import "C"
 
 import (
-	"C"
-	"fmt"
+	"encoding/json"
 	"log"
+	"unsafe"
 
 	"github.com/pion/webrtc/v4"
+	"github.com/sushiag/go-webrtc-signaling-server/internal/webrtc"
 )
 
 var peerConnection *webrtc.PeerConnection
 
-//export StartWebRTC
 func StartWebRTC() {
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
+			{URLs: []string{"stun:stun.1.google.com:19302"}},
 		},
 	}
 
 	pc, err := webrtc.NewPeerConnection(config)
 	if err != nil {
-		log.Println("[FFI] Failed to create peer connection:", err)
+		log.Println("Failed to create PeerConnection:", err)
 		return
 	}
-	peerConnection = pc
 
-	fmt.Println("[FFI] WebRTC PeerConnection started successfully")
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c != nil {
+			candidate := c.ToJSON()
+			candidateJSON, _ := json.Marshal(candidate)
+
+			sendToRust(string(candidateJSON))
+		}
+	})
+
+	peerConnection = pc
+}
+
+func sendToRust(msg string) {
+	cMsg := C.CString(msg)
+	defer C.free(unsafe.Pointer(cMsg))
+
+	C.ReceiveMessageFromGo(cMsg)
 }
