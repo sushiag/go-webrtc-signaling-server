@@ -66,6 +66,17 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, auth
 	wm.readMessages(client)
 }
 
+func (wm *WebSocketManager) SendToRoom(roomID, senderID string, messege Message) {
+	log.Printf("[WS] Sending message to room % from %s\n", roomID, senderID)
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Panicf("[WS] failed to serialize message:%v", err)
+		return
+	}
+	wm.roomManager.BroadcastMessage(roomID, senderID, data)
+}
+
 func (wm *WebSocketManager) readMessages(client *room.Client) { //listens for messages from the clients
 	log.Printf("[WS] client %s has start readin messages. \n ", client.ID)
 	for {

@@ -40,7 +40,9 @@ func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID s
 			candidateJSON, _ := json.Marshal(candidate)
 
 			message := websocket.Message{
-				Type:    "Ice-candidate",
+				Type:    "ice-candidate",
+				RoomID:  roomID,
+				Sender:  clientID,
 				Content: string(candidateJSON),
 			}
 			wm.SendToRoom(roomID, clientID, message)
