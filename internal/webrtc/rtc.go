@@ -65,7 +65,7 @@ func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID s
 			log.Println("[ICE] connection failed. restart attemping:")
 			offer, err := peerConnection.CreateOffer(&webrtc.OfferOptions{ICERestart: true})
 			if err != nil {
-				log.Println("[ICE] failed to create restart offer:", err)
+				log.Println("[ICE] failed to create/restart offer:", err)
 				return
 			}
 			peerConnection.SetLocalDescription(offer)
@@ -76,7 +76,7 @@ func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID s
 				Content: string(offer.SDP),
 			})
 		case webrtc.ICEConnectionStateDisconnected:
-			log.Println("[ICE] Disconnected, checking if reconnection is possible..")
+			log.Println("[ICE] Disconnected, checking if reconnection is possible.. attempting to reconnect..")
 
 		}
 

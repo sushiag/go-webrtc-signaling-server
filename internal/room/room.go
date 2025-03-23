@@ -41,6 +41,14 @@ func (rm *RoomManager) CreateRoom(roomID string) {
 		log.Println("[ROOM] Created:", roomID) // create a room if it doesn't exist
 	}
 }
+
+func (rm *RoomManager) GetRoom(roomID string) *Room {
+	rm.Mtx.RLock()
+	defer rm.Mtx.RUnlock()
+
+	return rm.rooms[roomID]
+}
+
 func (rm *RoomManager) AddClient(roomID string, client *Client) {
 	rm.Mtx.Lock()
 	room, exists := rm.rooms[roomID]
@@ -103,6 +111,20 @@ func (rm *RoomManager) BroadcastMessage(roomID, senderID string, message []byte)
 			err := client.Conn.WriteMessage(websocket.TextMessage, message)
 			if err != nil {
 				log.Printf("[ROOM] Failed to send message to %s: %v", id, err)
+			}
+		}
+	}
+}
+
+func (r *Room) BroadcastToOthers(message []byte, sender *Client) {
+	r.Mutex.RLock()
+	defer r.Mutex.Unlock()
+
+	for id, client := range r.Clients {
+		if id != sender.ID {
+			err := client.Conn.WriteMessage(websocket.TextMessage, message)
+			if err != nil {
+				log.Printf("[ROOM] failed to send message to %s: %v", id, err)
 			}
 		}
 	}

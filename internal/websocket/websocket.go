@@ -97,10 +97,25 @@ func (wm *WebSocketManager) readMessages(client *room.Client) { //listens for me
 		switch msg.Type {
 		case "join":
 			log.Printf("[WS] Client %s has joining the room %s. \n ", client.ID, msg.RoomID)
+			wm.roomManager.CreateRoom(msg.RoomID) // pre-create room
 			wm.roomManager.AddClient(msg.RoomID, client)
-		case "offer", "asnwer", "ice-candidate":
+		case "offer", "answer", "ice-candidate":
 			log.Printf("[WS] Client %s is forwarding a '%s' message to room %s. \n", client.ID, msg.Type, msg.RoomID)
 			wm.roomManager.BroadcastMessage(msg.RoomID, client.ID, []byte(msg.Content))
+		case "signal":
+			log.Printf("[WS] Client %s is broadcasting signal message to room %s. \n", client.ID, msg.RoomID)
+			room := wm.roomManager.GetRoom(msg.RoomID)
+			if room == nil {
+				log.Printf("[WS] Room %s not found.", msg.RoomID)
+				continue
+			}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				log.Printf("[WS] failed to serialize signam message from %s: %v", client.ID, err)
+				continue
+			}
+			room.BroadcastToOthers(data, client)
+
 		default:
 			log.Printf("[WS] Client sent %s unknown message type: %s\n", client.ID, msg.Type)
 		}
