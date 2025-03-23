@@ -2,6 +2,7 @@ package webrtc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 
@@ -11,6 +12,142 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/sushiag/go-webrtc-signaling-server/internal/websocket"
 )
+
+type WebRTCClient struct {
+	APIKey       string
+	SignalingURL string
+	RoomID       string
+	ClientID     string
+	WM           *websocket.WebSocketManager
+	PC           *webrtc.PeerConnection
+	Handler      func(sourceID string, message []byte)
+}
+
+func NewWebRTCClient(apiKey, signalingURL string, wm *websocket.WebSocketManager, roomID, clientID string) *WebRTCClient {
+	return &WebRTCClient{
+		APIKey:       apiKey,
+		SignalingURL: signalingURL,
+		WM:           wm,
+		RoomID:       roomID,
+		ClientID:     clientID,
+	}
+}
+
+func (c *WebRTCClient) Connect() error {
+	pc, err := InitializePeerConnection(c.WM, c.RoomID, c.ClientID)
+	if err != nil {
+		return err
+	}
+	c.PC = pc
+	return nil
+}
+
+func (c *WebRTCClient) StartSession(sessionID string) error {
+	if c.PC == nil {
+		return errors.New("peer connection not initialized")
+	}
+	offer, err := c.PC.CreateOffer(nil)
+	if err != nil {
+		return err
+	}
+	err = c.PC.SetLocalDescription(offer)
+	if err != nil {
+		return err
+	}
+
+	msg := websocket.Message{
+		Type:    "offer",
+		RoomID:  c.RoomID,
+		Sender:  c.ClientID,
+		Content: offer.SDP,
+	}
+	c.WM.SendToRoom(c.RoomID, c.ClientID, msg)
+	return nil
+}
+
+func (c *WebRTCClient) JoinSession(sessionID string) error {
+	log.Println("[JoinSession] Placeholder - handle offer/answer from signaling server")
+	return nil
+}
+
+func (c *WebRTCClient) SendMessage(targetID string, message []byte) error {
+	msg := websocket.Message{
+		Type:    "signal",
+		RoomID:  c.RoomID,
+		Sender:  c.ClientID,
+		Content: string(message),
+	}
+	c.WM.SendToRoom(c.RoomID, targetID, msg)
+	return nil
+}
+
+func (c *WebRTCClient) SetMessageHandler(handler func(sourceID string, message []byte)) {
+	c.Handler = handler
+}
+
+func (c *WebRTCClient) Close() error {
+	if c.PC != nil {
+		return c.PC.Close()
+	}
+	return nil
+}
+
+func (c *WebRTCClient) HandleOffer(sdp string) error {
+	offer := webrtc.SessionDescription{
+		Type: webrtc.SDPTypeOffer,
+		SDP:  sdp,
+	}
+	if err := c.PC.SetRemoteDescription(offer); err != nil {
+		return fmt.Errorf("failed to set remote offer: %w", err)
+	}
+	answer, err := c.PC.CreateAnswer(nil)
+	if err != nil {
+		return fmt.Errorf("failed to create answer: %w", err)
+	}
+	if err := c.PC.SetLocalDescription(answer); err != nil {
+		return fmt.Errorf("failed to set local answer: %w", err)
+	}
+	msg := websocket.Message{
+		Type:    "answer",
+		RoomID:  c.RoomID,
+		Sender:  c.ClientID,
+		Content: answer.SDP,
+	}
+	c.WM.SendToRoom(c.RoomID, c.ClientID, msg)
+	return nil
+}
+
+func (c *WebRTCClient) HandleAnswer(sdp string) error {
+	answer := webrtc.SessionDescription{
+		Type: webrtc.SDPTypeAnswer,
+		SDP:  sdp,
+	}
+	return c.PC.SetRemoteDescription(answer)
+}
+
+func (c *WebRTCClient) HandleICECandidate(candidateJSON string) error {
+	var candidate webrtc.ICECandidateInit
+	if err := json.Unmarshal([]byte(candidateJSON), &candidate); err != nil {
+		return fmt.Errorf("invalid ICE candidate JSON: %w", err)
+	}
+	return c.PC.AddICECandidate(candidate)
+}
+
+func (c *WebRTCClient) HandleSignalingMessage(msg websocket.Message) error {
+	switch msg.Type {
+	case "offer":
+		return c.HandleOffer(msg.Content)
+	case "answer":
+		return c.HandleAnswer(msg.Content)
+	case "ice-candidate":
+		return c.HandleICECandidate(msg.Content)
+	default:
+		if c.Handler != nil {
+			c.Handler(msg.Sender, []byte(msg.Content))
+		}
+	}
+	return nil
+}
 
 func LoadSTUNServer() string {
 	_ = godotenv.Load() // loads the env variables
