@@ -12,8 +12,6 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/internal/websocket"
 )
 
-var simplePeerConnection *webrtc.PeerConnection
-
 func LoadSTUNServer() string {
 	_ = godotenv.Load() // loads the env variables
 	stunServer := os.Getenv("STUN_SERVER")
