@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -40,8 +41,9 @@ func generateHMACToken(clientID string) string {
 func authenticate(r *http.Request) bool {
 	sentToken := r.Header.Get("X-Auth-Token") // Get token from headers
 	clientID := r.Header.Get("X-Client-ID")   //client unique identifiier
-	if clientID == "" {
-		log.Warn("Missing client ID")
+
+	if clientID == "" || sentToken == "" {
+		log.Warn("Missing auth headers")
 		return false
 	}
 
@@ -53,7 +55,7 @@ func authenticate(r *http.Request) bool {
 	}).Warn("Authentication attempt")
 
 	if sentToken != expectedToken {
-		log.Warn("Unauthorized access attempt!")
+		log.Warn("Unauthorized access attempt: token mismatch")
 		return false
 	}
 	return true
@@ -69,8 +71,16 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	serverPort := ":" + os.Getenv("SERVER_PORT")
+	port := os.Getenv("SERVER_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	serverPort := ":" + port
+
 	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "ws://localhost:" + port
+	}
 
 	wsManager := websocket.NewWebSocketManager(allowedOrigin)
 
@@ -82,7 +92,23 @@ func main() {
 
 	log.WithField("port", serverPort).Info("Server is running. Press CTRL+C to exit.")
 
-	if err := http.ListenAndServe(serverPort, mux); err != nil {
-		log.WithError(err).Fatal("Server failed to start")
-	}
+	// Start server in a goroutine
+	go func() {
+		if err := http.ListenAndServe(serverPort, mux); err != nil {
+			log.WithError(err).Fatal("Server failed to start")
+		}
+	}()
+
+	// Generate a test token for your client ID using your .env secret
+	clientID := "my-client"
+	token := generateHMACToken(clientID)
+	fmt.Println("-----------")
+	fmt.Println("Test Token Generator")
+	fmt.Println("X-Client-ID:", clientID)
+	fmt.Println("X-Auth-Token:", token)
+	fmt.Println("-----------")
+
+	// Block forever
+	select {}
+
 }
