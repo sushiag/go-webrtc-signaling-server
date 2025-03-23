@@ -1,6 +1,6 @@
 //go:build cgo
 
-package main
+package clientffi
 
 /*
 #include <stdlib.h>
