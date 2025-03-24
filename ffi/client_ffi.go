@@ -1,18 +1,12 @@
-//go:build cgo
-
-package clientffi
+package main
 
 /*
 #include <stdlib.h>
 
 typedef void (*MessageHandler)(const char* sourceID, const char* message);
 
-// C function to safely call the message handler
-void callMessageHandler(MessageHandler handler, const char* sourceID, const char* message) {
-	if (handler != NULL) {
-		handler(sourceID, message);
-	}
-}
+// Declaration only — definition goes in bridge.c
+void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message);
 */
 import "C"
 
@@ -33,8 +27,7 @@ var (
 //export InitWebRTCClient
 func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 	clientOnce.Do(func() {
-		// No need to specify origin anymore since HMAC auth is used
-		wm := websocket.NewWebSocketManager("") // safe default, or update internal logic to ignore this field
+		wm := websocket.NewWebSocketManager("")
 		clientInstance = webrtc.NewWebRTCClient(
 			C.GoString(apiKey),
 			C.GoString(signalingURL),
@@ -49,7 +42,7 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 				defer C.free(unsafe.Pointer(cSource))
 				defer C.free(unsafe.Pointer(cMsg))
 
-				C.callMessageHandler(messageHandler, cSource, cMsg)
+				C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
 			}
 		})
 	})
@@ -111,4 +104,8 @@ func CloseSession() C.int {
 		return -1
 	}
 	return 0
+}
+
+func main() {
+
 }
