@@ -33,8 +33,8 @@ func NewWebRTCClient(apiKey, signalingURL string, wm *websocket.WebSocketManager
 	}
 }
 
-func (c *WebRTCClient) Connect() error {
-	pc, err := InitializePeerConnection(c.WM, c.RoomID, c.ClientID)
+func (c *WebRTCClient) Connect(isOfferer bool) error {
+	pc, err := InitializePeerConnection(c.WM, c.RoomID, c.ClientID, isOfferer)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func LoadSTUNServer() string {
 	return stunServer
 }
 
-func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID string) (*webrtc.PeerConnection, error) {
+func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID string, createDataChannel bool) (*webrtc.PeerConnection, error) {
 	stunServer := LoadSTUNServer()
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -170,6 +170,26 @@ func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID s
 	if err != nil {
 		return nil, fmt.Errorf("failed to create peer connection: %v", err)
 	}
+	// create datachannel for offerer
+	if createDataChannel {
+		wm.SetupDataChannel(peerConnection, clientID)
+	}
+	// listen for the data channel
+	peerConnection.OnDataChannel(func(dc *webrtc.DataChannel) {
+		log.Printf("[WS] DataChannel received for client %s\n", clientID)
+
+		dc.OnOpen(func() {
+			log.Printf("[WS] DataChannel opened (received) for client %s\n", clientID)
+		})
+
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			log.Printf("[WS] DataChannel received message from %s: %s\n", clientID, string(msg.Data))
+		})
+
+		wm.DataChannelMtx.Lock()
+		wm.DataChannels[clientID] = dc
+		wm.DataChannelMtx.Unlock()
+	})
 
 	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {

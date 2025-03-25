@@ -26,6 +26,8 @@ var (
 
 //export InitWebRTCClient
 func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
+	var connectErr error
+
 	clientOnce.Do(func() {
 		wm := websocket.NewWebSocketManager("")
 		clientInstance = webrtc.NewWebRTCClient(
@@ -45,9 +47,11 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 				C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
 			}
 		})
+
+		connectErr = clientInstance.Connect(true)
 	})
-	err := clientInstance.Connect()
-	if err != nil {
+
+	if clientInstance == nil || connectErr != nil {
 		return -1
 	}
 	return 0

@@ -21,11 +21,13 @@ type Message struct {
 }
 
 type WebSocketManager struct { // handles the WebSocket connections
-	upgrader     websocket.Upgrader
-	roomManager  *room.RoomManager
-	clientMtx    sync.Mutex
-	clients      map[string]*room.Client
-	dataChannels map[string]*webrtc.DataChannel // stores active data channels
+	upgrader       websocket.Upgrader
+	roomManager    *room.RoomManager
+	clientMtx      sync.Mutex
+	clients        map[string]*room.Client
+	dataChannels   map[string]*webrtc.DataChannel // stores active data channels
+	DataChannelMtx sync.RWMutex
+	DataChannels   map[string]*webrtc.DataChannel
 }
 
 func NewWebSocketManager(allowedOrigin string) *WebSocketManager {
