@@ -107,6 +107,15 @@ func main() {
 	mux.HandleFunc("/auth", authHandler)           // optional: client-side auth check
 	mux.HandleFunc("/register", registerNewClient) // client registration route
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		// Inject query params into headers if present
+		clientID := r.URL.Query().Get("client_id")
+		token := r.URL.Query().Get("token")
+		if clientID != "" && token != "" {
+			r.Header.Set("X-Client-ID", clientID)
+			r.Header.Set("X-Auth-Token", token)
+		}
+
+		// Proceed with authentication and connection
 		wsManager.Handler(w, r, authenticate)
 	})
 
