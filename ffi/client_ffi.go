@@ -3,10 +3,15 @@ package main
 /*
 #include <stdlib.h>
 
+// C declaration
 typedef void (*MessageHandler)(const char* sourceID, const char* message);
 
-// Declaration only — implementation is in bridge.c
-void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message);
+// C function implementation
+void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message) {
+	if (handler != NULL) {
+		handler(sourceID, message);
+	}
+}
 */
 import "C"
 
@@ -39,7 +44,6 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 
 	clientOnce.Do(func() {
 		wm := websocket.NewWebSocketManager("")
-
 		clientInstance = webrtc.NewWebRTCClient(
 			C.GoString(apiKey),
 			C.GoString(signalingURL),
@@ -47,7 +51,6 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 			C.GoString(roomID),
 			C.GoString(clientID),
 		)
-
 		clientInstance.SetMessageHandler(func(sourceID string, message []byte) {
 			if messageHandler != nil {
 				callMessageHandler(sourceID, string(message))
