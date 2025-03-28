@@ -5,7 +5,7 @@ package main
 
 typedef void (*MessageHandler)(const char* sourceID, const char* message);
 
-// Declaration only — definition goes in bridge.c
+// Declaration only — implementation is in bridge.c
 void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message);
 */
 import "C"
@@ -24,12 +24,22 @@ var (
 	messageHandler C.MessageHandler
 )
 
+func callMessageHandler(sourceID, message string) {
+	cSource := C.CString(sourceID)
+	cMsg := C.CString(message)
+	defer C.free(unsafe.Pointer(cSource))
+	defer C.free(unsafe.Pointer(cMsg))
+
+	C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
+}
+
 //export InitWebRTCClient
 func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 	var connectErr error
 
 	clientOnce.Do(func() {
 		wm := websocket.NewWebSocketManager("")
+
 		clientInstance = webrtc.NewWebRTCClient(
 			C.GoString(apiKey),
 			C.GoString(signalingURL),
@@ -37,14 +47,10 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 			C.GoString(roomID),
 			C.GoString(clientID),
 		)
+
 		clientInstance.SetMessageHandler(func(sourceID string, message []byte) {
 			if messageHandler != nil {
-				cSource := C.CString(sourceID)
-				cMsg := C.CString(string(message))
-				defer C.free(unsafe.Pointer(cSource))
-				defer C.free(unsafe.Pointer(cMsg))
-
-				C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
+				callMessageHandler(sourceID, string(message))
 			}
 		})
 
@@ -110,6 +116,4 @@ func CloseSession() C.int {
 	return 0
 }
 
-func main() {
-
-}
+func main() {}
