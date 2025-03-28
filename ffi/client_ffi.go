@@ -3,15 +3,10 @@ package main
 /*
 #include <stdlib.h>
 
-// C declaration
 typedef void (*MessageHandler)(const char* sourceID, const char* message);
 
-// C function implementation
-void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message) {
-	if (handler != NULL) {
-		handler(sourceID, message);
-	}
-}
+// Declaration only — definition goes in bridge.c
+void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message);
 */
 import "C"
 
@@ -29,15 +24,6 @@ var (
 	messageHandler C.MessageHandler
 )
 
-func callMessageHandler(sourceID, message string) {
-	cSource := C.CString(sourceID)
-	cMsg := C.CString(message)
-	defer C.free(unsafe.Pointer(cSource))
-	defer C.free(unsafe.Pointer(cMsg))
-
-	C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
-}
-
 //export InitWebRTCClient
 func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 	var connectErr error
@@ -53,7 +39,12 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 		)
 		clientInstance.SetMessageHandler(func(sourceID string, message []byte) {
 			if messageHandler != nil {
-				callMessageHandler(sourceID, string(message))
+				cSource := C.CString(sourceID)
+				cMsg := C.CString(string(message))
+				defer C.free(unsafe.Pointer(cSource))
+				defer C.free(unsafe.Pointer(cMsg))
+
+				C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
 			}
 		})
 
@@ -119,4 +110,6 @@ func CloseSession() C.int {
 	return 0
 }
 
-func main() {}
+func main() {
+
+}
