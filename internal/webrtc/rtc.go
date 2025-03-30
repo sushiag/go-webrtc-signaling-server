@@ -66,7 +66,21 @@ func (c *WebRTCClient) StartSession(sessionID string) error {
 }
 
 func (c *WebRTCClient) JoinSession(sessionID string) error {
-	log.Println("[JoinSession] Placeholder - handle offer/answer from signaling server")
+	if c.PC == nil {
+		return errors.New("peer connection not initialized")
+	}
+
+	log.Println("[JoinSession] Waiting for offer...")
+
+	c.SetMessageHandler(func(sourceID string, message []byte) {
+		var msg websocket.Message
+		json.Unmarshal(message, &msg)
+
+		if msg.Type == "offer" {
+			c.HandleOffer(msg.Content)
+		}
+	})
+
 	return nil
 }
 
@@ -170,11 +184,10 @@ func InitializePeerConnection(wm *websocket.WebSocketManager, roomID, clientID s
 	if err != nil {
 		return nil, fmt.Errorf("failed to create peer connection: %v", err)
 	}
-	// create datachannel for offerer
 	if createDataChannel {
 		wm.SetupDataChannel(peerConnection, clientID)
 	}
-	// listen for the data channel
+
 	peerConnection.OnDataChannel(func(dc *webrtc.DataChannel) {
 		log.Printf("[WS] DataChannel received for client %s\n", clientID)
 

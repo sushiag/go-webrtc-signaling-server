@@ -13,6 +13,11 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/internal/room"
 )
 
+type Client struct {
+	ID     string
+	Conn   *websocket.Conn
+	RoomID string
+}
 type Message struct {
 	Type    string `json:"type"`
 	RoomID  string `json:"room_id,omitempty"`
@@ -25,12 +30,12 @@ type WebSocketManager struct { // handles the WebSocket connections
 	roomManager    *room.RoomManager
 	clientMtx      sync.Mutex
 	clients        map[string]*room.Client
-	dataChannels   map[string]*webrtc.DataChannel // stores active data channels
 	DataChannelMtx sync.RWMutex
 	DataChannels   map[string]*webrtc.DataChannel
 }
 
 func NewWebSocketManager(allowedOrigin string) *WebSocketManager {
+
 	return &WebSocketManager{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -40,7 +45,7 @@ func NewWebSocketManager(allowedOrigin string) *WebSocketManager {
 		},
 		roomManager:  room.NewRoomManager(),
 		clients:      make(map[string]*room.Client),
-		dataChannels: make(map[string]*webrtc.DataChannel),
+		DataChannels: make(map[string]*webrtc.DataChannel),
 	}
 }
 
@@ -109,8 +114,11 @@ func (wm *WebSocketManager) readMessages(client *room.Client) { //listens for me
 
 		switch msg.Type {
 		case "join":
-			log.Printf("[WS] Client %s is joining the room %s.\n", client.ID, msg.RoomID)
-			wm.roomManager.CreateRoom(msg.RoomID) // pre-create room
+			log.Printf("[WS] Client %s is joining room %s.\n", client.ID, msg.RoomID)
+
+			if wm.roomManager.GetRoom(msg.RoomID) == nil {
+				wm.roomManager.CreateRoom(msg.RoomID)
+			}
 			wm.roomManager.AddClient(msg.RoomID, client)
 		case "offer", "answer", "ice-candidate":
 			log.Printf("[WS] Client %s forwarding a '%s' message to room %s.\n", client.ID, msg.Type, msg.RoomID)
@@ -172,11 +180,11 @@ func (wm *WebSocketManager) SetupDataChannel(peerConnection *webrtc.PeerConnecti
 		log.Printf("[WS] DataChannel received message from %s: %s\n", clientID, string(msg.Data))
 	})
 
-	wm.dataChannels[clientID] = dataChannel
+	wm.DataChannels[clientID] = dataChannel
 }
 
 func (wm *WebSocketManager) sendDataToDataChannel(clientID string, message []byte) {
-	dataChannel, exists := wm.dataChannels[clientID]
+	dataChannel, exists := wm.DataChannels[clientID]
 	if !exists || dataChannel == nil {
 		log.Printf("[WS] No DataChannel found for client %s\n", clientID)
 		return

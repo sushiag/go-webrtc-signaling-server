@@ -1,11 +1,20 @@
 package room
 
 import (
+	"encoding/json"
 	"log"
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 )
+
+type SignalingMessage struct {
+	Type     string          `json:"type"` // "offer", "answer", "ice"
+	Payload  json.RawMessage `json:"payload"`
+	SenderID string          `json:"sender_id"`
+	TargetID string          `json:"target_id,omitempty"`
+}
 
 type Client struct {
 	ID   string
@@ -21,11 +30,13 @@ type Room struct {
 type RoomManager struct {
 	rooms map[string]*Room
 	Mtx   sync.RWMutex
+	log   *logrus.Entry
 }
 
 func NewRoomManager() *RoomManager {
 	return &RoomManager{
 		rooms: make(map[string]*Room),
+		log:   logrus.WithField("component", "room"),
 	}
 }
 
@@ -47,6 +58,7 @@ func (rm *RoomManager) GetRoom(roomID string) *Room {
 	defer rm.Mtx.RUnlock()
 
 	return rm.rooms[roomID]
+
 }
 
 func (rm *RoomManager) AddClient(roomID string, client *Client) {
@@ -58,6 +70,7 @@ func (rm *RoomManager) AddClient(roomID string, client *Client) {
 			Clients: make(map[string]*Client),
 		}
 		rm.rooms[roomID] = room
+
 	}
 	rm.Mtx.Unlock()
 
@@ -66,6 +79,18 @@ func (rm *RoomManager) AddClient(roomID string, client *Client) {
 	room.Mutex.Unlock()
 
 	log.Printf("[ROOM] Client %s has joined room %s", client.ID, roomID) // adds a client to a room
+}
+
+func (rm *RoomManager) ListClients(roomID string) []string {
+	room := rm.GetRoom(roomID)
+	if room == nil {
+		return []string{}
+	}
+	var clients []string
+	for clientID := range room.Clients {
+		clients = append(clients, clientID)
+	}
+	return clients
 }
 
 func (rm *RoomManager) RemoveClient(roomID, clientID string) {
