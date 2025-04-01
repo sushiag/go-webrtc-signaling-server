@@ -8,7 +8,6 @@ typedef void (*MessageHandler)(const char* sourceID, const char* message);
 void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message);
 #cgo CFLAGS: -I.
 #cgo LDFLAGS: bridge.o
-#include "client_ffi.h"
 */
 import "C"
 
