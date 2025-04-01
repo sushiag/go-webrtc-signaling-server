@@ -5,8 +5,10 @@ package main
 
 typedef void (*MessageHandler)(const char* sourceID, const char* message);
 
-// Declaration only — definition goes in bridge.c
 void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message);
+#cgo CFLAGS: -I.
+#cgo LDFLAGS: bridge.o
+#include "client_ffi.h"
 */
 import "C"
 
@@ -19,75 +21,81 @@ import (
 )
 
 var (
-	clientInstance *webrtc.WebRTCClient
-	clientOnce     sync.Once
+	clients        sync.Map // Map of clientID -> *WebRTCClient
 	messageHandler C.MessageHandler
 )
 
+func getClient(clientID string) *webrtc.WebRTCClient {
+	v, exists := clients.Load(clientID)
+	if !exists {
+		return nil
+	}
+	return v.(*webrtc.WebRTCClient)
+}
+
 //export InitWebRTCClient
 func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
-	var connectErr error
+	id := C.GoString(clientID)
 
-	clientOnce.Do(func() {
-		wm := websocket.NewWebSocketManager("")
-		clientInstance = webrtc.NewWebRTCClient(
-			C.GoString(apiKey),
-			C.GoString(signalingURL),
-			wm,
-			C.GoString(roomID),
-			C.GoString(clientID),
-		)
-		clientInstance.SetMessageHandler(func(sourceID string, message []byte) {
-			if messageHandler != nil {
-				cSource := C.CString(sourceID)
-				cMsg := C.CString(string(message))
-				defer C.free(unsafe.Pointer(cSource))
-				defer C.free(unsafe.Pointer(cMsg))
+	wm := websocket.NewWebSocketManager("")
+	client := webrtc.NewWebRTCClient(
+		C.GoString(apiKey),
+		C.GoString(signalingURL),
+		wm,
+		C.GoString(roomID),
+		id,
+	)
 
-				C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
-			}
-		})
+	client.SetMessageHandler(func(sourceID string, message []byte) {
+		if messageHandler != nil {
+			cSource := C.CString(sourceID)
+			cMsg := C.CString(string(message))
+			defer C.free(unsafe.Pointer(cSource))
+			defer C.free(unsafe.Pointer(cMsg))
 
-		connectErr = clientInstance.Connect(true)
+			C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
+		}
 	})
 
-	if clientInstance == nil || connectErr != nil {
+	if err := client.Connect(true); err != nil {
 		return -1
 	}
+
+	clients.Store(id, client)
 	return 0
 }
 
 //export StartSession
-func StartSession(sessionID *C.char) C.int {
-	if clientInstance == nil {
+func StartSession(clientID, sessionID *C.char) C.int {
+	client := getClient(C.GoString(clientID))
+	if client == nil {
 		return -1
 	}
-	err := clientInstance.StartSession(C.GoString(sessionID))
-	if err != nil {
+	if err := client.StartSession(C.GoString(sessionID)); err != nil {
 		return -1
 	}
 	return 0
 }
 
 //export JoinSession
-func JoinSession(sessionID *C.char) C.int {
-	if clientInstance == nil {
+func JoinSession(clientID, sessionID *C.char) C.int {
+	client := getClient(C.GoString(clientID))
+	if client == nil {
 		return -1
 	}
-	err := clientInstance.JoinSession(C.GoString(sessionID))
-	if err != nil {
+	if err := client.JoinSession(C.GoString(sessionID)); err != nil {
 		return -1
 	}
 	return 0
 }
 
 //export SendSignalingMessage
-func SendSignalingMessage(targetID, message *C.char) C.int {
-	if clientInstance == nil {
+func SendSignalingMessage(clientID, targetID, message *C.char) C.int {
+	client := getClient(C.GoString(clientID))
+	if client == nil {
 		return -1
 	}
-	err := clientInstance.SendMessage(C.GoString(targetID), []byte(C.GoString(message)))
-	if err != nil {
+	if err := client.SendMessage(C.GoString(targetID), []byte(C.GoString(message))); err != nil {
 		return -1
 	}
 	return 0
@@ -99,17 +107,17 @@ func SetMessageHandler(handler C.MessageHandler) {
 }
 
 //export CloseSession
-func CloseSession() C.int {
-	if clientInstance == nil {
+func CloseSession(clientID *C.char) C.int {
+	id := C.GoString(clientID)
+	client := getClient(id)
+	if client == nil {
 		return 0
 	}
-	err := clientInstance.Close()
-	if err != nil {
+	if err := client.Close(); err != nil {
 		return -1
 	}
+	clients.Delete(id)
 	return 0
 }
 
-func main() {
-
-}
+func main() { /* No-op */ }
