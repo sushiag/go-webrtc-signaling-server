@@ -1,6 +1,8 @@
 package main
 
 /*
+#include <stdlib.h>
+#include <string.h>
 #cgo CFLAGS: -I.
 #cgo LDFLAGS: bridge.o
 #include "bridge.h"
