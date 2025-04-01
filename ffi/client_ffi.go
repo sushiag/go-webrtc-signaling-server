@@ -1,13 +1,9 @@
 package main
 
 /*
-#include <stdlib.h>
-
-typedef void (*MessageHandler)(const char* sourceID, const char* message);
-
-void CallMessageHandlerBridge(MessageHandler handler, const char* sourceID, const char* message);
 #cgo CFLAGS: -I.
 #cgo LDFLAGS: bridge.o
+#include "bridge.h"
 */
 import "C"
 
@@ -45,6 +41,7 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 		id,
 	)
 
+	// Set the Go function as the message handler.
 	client.SetMessageHandler(func(sourceID string, message []byte) {
 		if messageHandler != nil {
 			cSource := C.CString(sourceID)
@@ -52,6 +49,7 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 			defer C.free(unsafe.Pointer(cSource))
 			defer C.free(unsafe.Pointer(cMsg))
 
+			// Call the C function, passing the Go callback
 			C.CallMessageHandlerBridge(messageHandler, cSource, cMsg)
 		}
 	})
