@@ -17,6 +17,7 @@ type Client struct {
 	Conn   *websocket.Conn
 	RoomID string
 }
+
 type Message struct {
 	Type    string `json:"type"`
 	RoomID  string `json:"room_id,omitempty"`
@@ -28,22 +29,17 @@ type WebSocketManager struct { // handles the WebSocket connections
 	upgrader       websocket.Upgrader
 	roomManager    *room.RoomManager
 	clientMtx      sync.Mutex
-	clients        map[string]*room.Client
+	clients        map[string]*websocket.Conn // client_id -> Conn
 	DataChannelMtx sync.RWMutex
 	DataChannels   map[string]*webrtc.DataChannel
 }
 
-func NewWebSocketManager(allowedOrigin string) *WebSocketManager {
+func NewWebSocketManager() *WebSocketManager {
 
 	return &WebSocketManager{
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				return allowedOrigin == "*" || origin == allowedOrigin
-			},
-		},
+		upgrader:     websocket.Upgrader{},
 		roomManager:  room.NewRoomManager(),
-		clients:      make(map[string]*room.Client),
+		clients:      make(map[string]*websocket.Conn),
 		DataChannels: make(map[string]*webrtc.DataChannel),
 	}
 }
@@ -52,35 +48,8 @@ func generateUniqueClientID() string {
 	return uuid.New().String()
 }
 
-func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, authenticate func(*http.Request) bool) {
-	if !authenticate(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	conn, err := wm.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("[WS] WebSocket upgrade failed:", err)
-		return
-	}
-	defer conn.Close()
-
-	clientID := generateUniqueClientID()
-	client := &room.Client{ID: clientID, Conn: conn}
-
-	wm.clientMtx.Lock()
-	wm.clients[clientID] = client
-	wm.clientMtx.Unlock()
-
-	log.Println("[WS] Client connected:", clientID)
-
-	defer wm.disconnectClient(client)
-
-	// Send the assigned clientID to the client
-	client.Conn.WriteMessage(websocket.TextMessage, []byte(`{"type": "client_id", "client_id": "`+clientID+`"}`))
-
-	go wm.sendPings(client)
-	wm.readMessages(client)
+func (wm *WebSocketManager) Upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+	return wm.upgrader.Upgrade(w, r, nil)
 }
 
 func (wm *WebSocketManager) SendToRoom(roomID, senderID string, message Message) {
@@ -94,70 +63,76 @@ func (wm *WebSocketManager) SendToRoom(roomID, senderID string, message Message)
 	wm.roomManager.BroadcastMessage(roomID, senderID, data)
 }
 
-func (wm *WebSocketManager) readMessages(client *room.Client) { //listens for messages from the clients
-	log.Printf("[WS] Client %s started reading messages.\n", client.ID)
+// Listens for messages from the clients
+func (wm *WebSocketManager) ReadMessages(clientId string) {
+	conn := wm.clients[clientId]
+
+	log.Printf("[WS] Reading messages from client %s.\n", clientId)
 	for {
-		_, message, err := client.Conn.ReadMessage()
+		_, message, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("[WS] Client %s encountered an error: %v\n", client.ID, err)
+			log.Printf("[WS] Client %s encountered an error: %v\n", clientId, err)
 			break
 		}
 
 		var msg Message // skips if no error
 		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Printf("[WS] Client %s sent an invalid message format: %s\n", client.ID, string(message))
+			log.Printf("[WS] Client %s sent an invalid message format: %s\n", clientId, string(message))
 			continue
 		}
 
-		log.Printf("[WS] Client %s sent a '%s': %s\n", client.ID, msg.Type, msg.Content)
+		log.Printf("[WS] Client %s sent a '%s': %s\n", clientId, msg.Type, msg.Content)
 
-		switch msg.Type {
-		case "join":
-			log.Printf("[WS] Client %s is joining room %s.\n", client.ID, msg.RoomID)
-
-			if wm.roomManager.GetRoom(msg.RoomID) == nil {
-				wm.roomManager.CreateRoom(msg.RoomID)
-			}
-			wm.roomManager.AddClient(msg.RoomID, client)
-		case "offer", "answer", "ice-candidate":
-			log.Printf("[WS] Client %s forwarding a '%s' message to room %s.\n", client.ID, msg.Type, msg.RoomID)
-			wm.roomManager.BroadcastMessage(msg.RoomID, client.ID, []byte(msg.Content))
-		case "signal":
-			log.Printf("[WS] Client %s is broadcasting signal message to room %s.\n", client.ID, msg.RoomID)
-			room := wm.roomManager.GetRoom(msg.RoomID)
-			if room == nil {
-				log.Printf("[WS] Room %s not found.", msg.RoomID)
-				continue
-			}
-			data, err := json.Marshal(msg)
-			if err != nil {
-				log.Printf("[WS] Failed to serialize signal message from %s: %v", client.ID, err)
-				continue
-			}
-			room.BroadcastToOthers(data, client)
-		case "data-message":
-			log.Printf("[WS] Client %s sent a data message: %s\n", client.ID, msg.Content)
-			wm.sendDataToDataChannel(client.ID, []byte(msg.Content))
-		default:
-			log.Printf("[WS] Client %s sent an unknown message type: %s\n", client.ID, msg.Type)
-		}
+		// switch msg.Type {
+		// case "join":
+		// 	log.Printf("[WS] Client %s is joining room %s.\n", clientId, msg.RoomID)
+		//
+		// 	if wm.roomManager.GetRoom(msg.RoomID) == nil {
+		// 		wm.roomManager.CreateRoom(msg.RoomID)
+		// 	}
+		// 	wm.roomManager.AddClient(msg.RoomID, client)
+		// case "offer", "answer", "ice-candidate":
+		// 	log.Printf("[WS] Client %s forwarding a '%s' message to room %s.\n", client.ID, msg.Type, msg.RoomID)
+		// 	wm.roomManager.BroadcastMessage(msg.RoomID, client.ID, []byte(msg.Content))
+		// case "signal":
+		// 	log.Printf("[WS] Client %s is broadcasting signal message to room %s.\n", client.ID, msg.RoomID)
+		// 	room := wm.roomManager.GetRoom(msg.RoomID)
+		// 	if room == nil {
+		// 		log.Printf("[WS] Room %s not found.", msg.RoomID)
+		// 		continue
+		// 	}
+		// 	data, err := json.Marshal(msg)
+		// 	if err != nil {
+		// 		log.Printf("[WS] Failed to serialize signal message from %s: %v", client.ID, err)
+		// 		continue
+		// 	}
+		// 	room.BroadcastToOthers(data, client)
+		// case "data-message":
+		// 	log.Printf("[WS] Client %s sent a data message: %s\n", client.ID, msg.Content)
+		// 	wm.sendDataToDataChannel(client.ID, []byte(msg.Content))
+		// default:
+		// 	log.Printf("[WS] Client %s sent an unknown message type: %s\n", client.ID, msg.Type)
+		// }
 	}
 }
 
-func (wm *WebSocketManager) disconnectClient(client *room.Client) {
-	wm.clientMtx.Lock()
-	defer wm.clientMtx.Unlock()
-
-	delete(wm.clients, client.ID)
-	log.Println("[WS] Client disconnected:", client.ID)
+func (wm *WebSocketManager) AddClient(clientId string, conn *websocket.Conn) {
+	wm.clients[clientId] = conn
 }
 
-func (wm *WebSocketManager) sendPings(client *room.Client) {
+func (wm *WebSocketManager) DisconnectClient(clientId string) {
+	// Delete the reference to the WS connection in the connection map
+	delete(wm.clients, clientId)
+	log.Println("[WS] Client disconnected:", clientId)
+}
+
+func (wm *WebSocketManager) SendPings(clientId string) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if err := client.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+		conn := wm.clients[clientId]
+		if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 			log.Println("[WS] Ping error:", err)
 			return
 		}

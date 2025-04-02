@@ -11,7 +11,6 @@ import (
 	"log"
 	"sync"
 	"unsafe"
-
 	"github.com/sushiag/go-webrtc-signaling-server/internal/webrtc"
 	"github.com/sushiag/go-webrtc-signaling-server/internal/websocket"
 )
