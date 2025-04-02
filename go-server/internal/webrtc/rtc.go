@@ -10,7 +10,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/pion/webrtc/v4"
-	"github.com/sushiag/go-webrtc-signaling-server/internal/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/go-server/internal/websocket"
 )
 
 type WebRTCClient struct {

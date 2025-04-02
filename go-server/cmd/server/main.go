@@ -12,7 +12,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
-	"github.com/sushiag/go-webrtc-signaling-server/internal/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/go-server/internal/websocket"
 )
 
 var (

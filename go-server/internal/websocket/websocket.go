@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
-	"github.com/sushiag/go-webrtc-signaling-server/internal/room"
+	"github.com/sushiag/go-webrtc-signaling-server/go-server/internal/room"
 )
 
 type Client struct {
