@@ -8,6 +8,7 @@ package main
 import "C"
 
 import (
+	"log"
 	"sync"
 	"unsafe"
 
@@ -32,8 +33,8 @@ func getClient(clientID string) *webrtc.WebRTCClient {
 //export InitWebRTCClient
 func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 	id := C.GoString(clientID)
-
 	wm := websocket.NewWebSocketManager("")
+
 	client := webrtc.NewWebRTCClient(
 		C.GoString(apiKey),
 		C.GoString(signalingURL),
@@ -55,7 +56,9 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 		}
 	})
 
+	// Connect and handle errors if the connection fails
 	if err := client.Connect(true); err != nil {
+		log.Println("[ERROR] Failed to connect:", err)
 		return -1
 	}
 
@@ -109,12 +112,15 @@ func CloseSession(clientID *C.char) C.int {
 	id := C.GoString(clientID)
 	client := getClient(id)
 	if client == nil {
+		log.Println("[ERROR] Client not found:", id)
 		return 0
 	}
 	if err := client.Close(); err != nil {
+		log.Println("[ERROR] Failed to close session:", err)
 		return -1
 	}
 	clients.Delete(id)
+	log.Println("[INFO] Session closed for client:", id)
 	return 0
 }
 
