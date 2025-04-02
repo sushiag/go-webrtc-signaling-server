@@ -2,9 +2,7 @@ package main
 
 /*
 #include <stdlib.h>
-#include <string.h>
-#cgo CFLAGS: -I.
-#cgo LDFLAGS: bridge.o
+#cgo LDFLAGS: -L. -lbridge
 #include "bridge.h"
 */
 import "C"
@@ -22,6 +20,7 @@ var (
 	messageHandler C.MessageHandler
 )
 
+// get the WebRTC client instance by clientID
 func getClient(clientID string) *webrtc.WebRTCClient {
 	v, exists := clients.Load(clientID)
 	if !exists {
@@ -43,7 +42,7 @@ func InitWebRTCClient(apiKey, signalingURL, roomID, clientID *C.char) C.int {
 		id,
 	)
 
-	// Set the Go function as the message handler.
+	// Set the Go function as the message handler
 	client.SetMessageHandler(func(sourceID string, message []byte) {
 		if messageHandler != nil {
 			cSource := C.CString(sourceID)
