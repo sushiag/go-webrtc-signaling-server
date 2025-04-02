@@ -13,20 +13,41 @@ import (
 // ffi = foreign functoin interface == a translation of your Go functions that other languages can call.
 // So... you need your functions first!
 
-func main() {
-	// Define WebSocket server URL
-	serverURL := "ws://localhost:8080/ws" // Adjust path if needed
-
-	// Create a WebSocket dialer and connect
+func CreateRoom(url string) *websocket.Conn {
 	headers := http.Header{}
 	headers.Set("X-API-Key", "my-api-key")
-	conn, _, err := websocket.DefaultDialer.Dial(serverURL, headers)
+	conn, _, err := websocket.DefaultDialer.Dial(url, headers)
 	if err != nil {
 		log.Fatal("Error connecting to WebSocket server:", err)
 	}
-	defer conn.Close()
+	fmt.Println("Connected to WebSocket server:", url)
 
-	fmt.Println("Connected to WebSocket server:", serverURL)
+	// you will receive a room id assigned by the server
+
+	return conn
+}
+
+func JoinRoom(url string, roomId string) *websocket.Conn {
+	headers := http.Header{}
+	headers.Set("X-API-Key", "my-api-key")
+	headers.Set("X-Room-ID", roomId)
+	conn, _, err := websocket.DefaultDialer.Dial(url, headers)
+	if err != nil {
+		log.Fatal("Error connecting to WebSocket server:", err)
+	}
+	fmt.Println("Connected to WebSocket server:", url)
+
+	return conn
+}
+
+func main() {
+	// Define WebSocket server URL
+	serverURL := "ws://localhost:8080/ws" // Adjust path if needed
+	roomId := "asdf"
+
+	// Create a WebSocket dialer and connect
+	conn := JoinRoom(serverURL, roomId)
+	defer conn.Close()
 
 	// TODO: handle whatever webrtc shenanigans
 
