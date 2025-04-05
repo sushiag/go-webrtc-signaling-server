@@ -3,58 +3,51 @@ package webrtc
 import (
 	"encoding/json"
 	"log"
-
-	"server/internal/websocket" // Correct import path for your websocket package
+	"server/internal/websocket"
 
 	"github.com/pion/webrtc/v4"
 )
 
-type Message struct {
-	Type    string `json:"type"`
-	RoomID  string `json:"roomID"`
-	Content string `json:"content"`
-}
-
-// InitializePeerConnection sets up a WebRTC peer connection for a client
-func InitializePeerConnection(conn *websocket.Conn, roomID string) (*webrtc.PeerConnection, error) {
+// peer to peer connection for client
+func InitializePeerConnection(wm *websocket.WebSocketManager, roomID uint64, userID uint64) (*webrtc.PeerConnection, error) {
+	// Define the STUN server to be used
 	stunServer := "stun:stun.1.google.com:19302"
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{stunServer}},
+			{URLs: []string{stunServer}}, // default stun server
 		},
 	}
 
-	// Create a new peer connection
+	// new peer connection with the config
 	peerConnection, err := webrtc.NewPeerConnection(config)
 	if err != nil {
 		return nil, err
 	}
 
-	// Handle ICE candidates
+	// ice candidates
 	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
-			// Convert ICE candidate to JSON
+			// Marshal ICE candidate to JSON
 			candidateJSON, err := json.Marshal(c.ToJSON())
 			if err != nil {
 				log.Printf("[ERROR] Failed to marshal ICE candidate: %v", err)
 				return
 			}
 
-			// Create message to send to WebSocket
-			msg := Message{
+			//  send message to websocket
+			msg := websocket.Message{
 				Type:    "ice-candidate",
 				RoomID:  roomID,
+				Sender:  userID,
 				Content: string(candidateJSON),
 			}
 
-			// Send message over WebSocket
-			if err := conn.WriteJSON(msg); err != nil {
-				log.Printf("[ERROR] Failed to send ICE candidate: %v", err)
-			}
+			// sending ice candidate to all users in the same room
+			wm.SendToRoom(roomID, userID, msg)
 		}
 	})
 
-	// Handle negotiation needed event
+	// negotiation needed event
 	peerConnection.OnNegotiationNeeded(func() {
 		offer, err := peerConnection.CreateOffer(nil)
 		if err != nil {
@@ -62,32 +55,36 @@ func InitializePeerConnection(conn *websocket.Conn, roomID string) (*webrtc.Peer
 			return
 		}
 
+		// local description for the offer
 		err = peerConnection.SetLocalDescription(offer)
 		if err != nil {
-			log.Println("[ERROR] Failed to set local description", err)
+			log.Println("[ERROR] Failed to set local description:", err)
 			return
 		}
 
-		// Send the offer via WebSocket
-		msg := Message{
+		// offer to all users in the room
+		msg := websocket.Message{
 			Type:    "offer",
 			RoomID:  roomID,
+			Sender:  userID,
 			Content: offer.SDP,
 		}
-		if err := conn.WriteJSON(msg); err != nil {
-			log.Printf("[ERROR] Failed to send offer: %v", err)
-		}
+		wm.SendToRoom(roomID, userID, msg)
 	})
 
-	// Handle incoming tracks (e.g., video or audio)
+	// this handles any type of track
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		log.Printf("New track received: %s", track.Kind())
 	})
 
-	// Handle ICE connection state changes
+	// for state of change
 	peerConnection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		log.Printf("[ICE] Connection state changed to: %s", state.String())
+		if state == webrtc.ICEConnectionStateFailed {
+			log.Println("[ERROR] ICE connection failed, consider restarting the connection.")
+		}
 	})
 
+	// return int peer connection
 	return peerConnection, nil
 }
