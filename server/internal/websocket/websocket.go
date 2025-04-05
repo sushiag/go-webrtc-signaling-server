@@ -2,59 +2,59 @@ package websocket
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/pion/webrtc/v4"
-	"github.com/sushiag/go-webrtc-signaling-server/server/internal/room"
 )
 
-type Client struct {
-	ID     string
-	Conn   *websocket.Conn
-	RoomID string
-}
+// struct for websocket communication
 type Message struct {
 	Type    string `json:"type"`
-	RoomID  string `json:"room_id,omitempty"`
-	Sender  string `json:"sender,omitempty"`
-	Content string `json:"content,omitempty"`
+	RoomID  string `json:"roomId"`
+	Sender  string `json:"sender"`
+	Content string `json:"content"`
 }
 
-type WebSocketManager struct { // handles the WebSocket connections
-	upgrader       websocket.Upgrader
-	roomManager    *room.RoomManager
-	clientMtx      sync.Mutex
-	clients        map[string]*room.Client
-	DataChannelMtx sync.RWMutex
-	DataChannels   map[string]*webrtc.DataChannel
+// struct for websocket client
+type Client struct {
+	ID   string
+	Conn *websocket.Conn
+	Room *Room
 }
 
-func NewWebSocketManager(allowedOrigin string) *WebSocketManager {
+// this manages WebSocket connections
+type WebSocketManager struct {
+	clients     map[string]*Client // API Key -> Client
+	roomManager *RoomManager
+	clientMtx   sync.RWMutex
+	upgrader    websocket.Upgrader
+}
 
+// NewWebSocketManager creates a new WebSocket manager
+func NewWebSocketManager(roomManager *RoomManager) *WebSocketManager {
 	return &WebSocketManager{
+		clients:     make(map[string]*Client),
+		roomManager: roomManager,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				return allowedOrigin == "*" || origin == allowedOrigin
-			},
+			CheckOrigin: func(r *http.Request) bool { return true }, // Customize as needed
 		},
-		roomManager:  room.NewRoomManager(),
-		clients:      make(map[string]*room.Client),
-		DataChannels: make(map[string]*webrtc.DataChannel),
 	}
 }
 
-func generateUniqueClientID() string {
-	return uuid.New().String()
+// Authenticate checks the API key in the WebSocket request
+func (wm *WebSocketManager) Authenticate(r *http.Request) bool {
+	apiKey := r.Header.Get("X-Api-Key")
+	// Add your API key validation logic here (e.g., check against a list or database)
+	return apiKey != "" // For now, assume any non-empty key is valid
 }
 
-func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, authenticate func(*http.Request) bool) {
-	if !authenticate(r) {
+// Handler manages WebSocket connections, using API key for authentication
+func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
+	if !wm.Authenticate(r) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -66,132 +66,76 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, auth
 	}
 	defer conn.Close()
 
-	clientID := generateUniqueClientID()
-	client := &room.Client{ID: clientID, Conn: conn}
+	// Get the API key from the request header
+	apiKey := r.Header.Get("X-Api-Key")
 
+	// Create a new client
+	client := &Client{ID: apiKey, Conn: conn}
+
+	// Store the client in the WebSocket manager
 	wm.clientMtx.Lock()
-	wm.clients[clientID] = client
+	wm.clients[apiKey] = client
 	wm.clientMtx.Unlock()
 
-	log.Println("[WS] Client connected:", clientID)
+	log.Printf("[WS] Client %s connected", apiKey)
 
-	defer wm.disconnectClient(client)
+	defer func() {
+		// Remove the client when it disconnects
+		wm.clientMtx.Lock()
+		delete(wm.clients, apiKey)
+		wm.clientMtx.Unlock()
+	}()
 
-	// Send the assigned clientID to the client
-	client.Conn.WriteMessage(websocket.TextMessage, []byte(`{"type": "client_id", "client_id": "`+clientID+`"}`))
-
-	go wm.sendPings(client)
-	wm.readMessages(client)
-}
-
-func (wm *WebSocketManager) SendToRoom(roomID, senderID string, message Message) {
-	log.Printf("[WS] Sending message to room %s from %s\n", roomID, senderID)
-
-	data, err := json.Marshal(message)
-	if err != nil {
-		log.Printf("[WS] Failed to serialize message: %v", err)
+	// Send the API key to the client
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type": "api_key", "api_key": "%s"}`, apiKey))); err != nil {
+		log.Printf("[WS] Failed to send API key to client %s: %v", apiKey, err)
 		return
 	}
-	wm.roomManager.BroadcastMessage(roomID, senderID, data)
+
+	// Read incoming WebSocket messages
+	go wm.readMessages(client)
+	wm.sendPings(client)
 }
 
-func (wm *WebSocketManager) readMessages(client *room.Client) { //listens for messages from the clients
-	log.Printf("[WS] Client %s started reading messages.\n", client.ID)
+// readMessages handles signaling messages from clients
+func (wm *WebSocketManager) readMessages(client *Client) {
 	for {
 		_, message, err := client.Conn.ReadMessage()
 		if err != nil {
-			log.Printf("[WS] Client %s encountered an error: %v\n", client.ID, err)
-			break
+			log.Println("[ERROR] Read error:", err)
+			return
 		}
 
-		var msg Message // skips if no error
+		var msg Message
 		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Printf("[WS] Client %s sent an invalid message format: %s\n", client.ID, string(message))
+			log.Println("[ERROR] Failed to parse WebSocket message:", err)
 			continue
 		}
 
-		log.Printf("[WS] Client %s sent a '%s': %s\n", client.ID, msg.Type, msg.Content)
+		log.Printf("[WS] Received message from %s: %s", client.ID, msg.Type)
 
-		switch msg.Type {
-		case "join":
-			log.Printf("[WS] Client %s is joining room %s.\n", client.ID, msg.RoomID)
-
-			if wm.roomManager.GetRoom(msg.RoomID) == nil {
-				wm.roomManager.CreateRoom(msg.RoomID)
-			}
-			wm.roomManager.AddClient(msg.RoomID, client)
-		case "offer", "answer", "ice-candidate":
-			log.Printf("[WS] Client %s forwarding a '%s' message to room %s.\n", client.ID, msg.Type, msg.RoomID)
-			wm.roomManager.BroadcastMessage(msg.RoomID, client.ID, []byte(msg.Content))
-		case "signal":
-			log.Printf("[WS] Client %s is broadcasting signal message to room %s.\n", client.ID, msg.RoomID)
-			room := wm.roomManager.GetRoom(msg.RoomID)
-			if room == nil {
-				log.Printf("[WS] Room %s not found.", msg.RoomID)
-				continue
-			}
-			data, err := json.Marshal(msg)
-			if err != nil {
-				log.Printf("[WS] Failed to serialize signal message from %s: %v", client.ID, err)
-				continue
-			}
-			room.BroadcastToOthers(data, client)
-		case "data-message":
-			log.Printf("[WS] Client %s sent a data message: %s\n", client.ID, msg.Content)
-			wm.sendDataToDataChannel(client.ID, []byte(msg.Content))
-		default:
-			log.Printf("[WS] Client %s sent an unknown message type: %s\n", client.ID, msg.Type)
-		}
+		// Forward the message to the correct room
+		wm.roomManager.SendToRoom(msg.RoomID, client.ID, msg)
 	}
 }
 
-func (wm *WebSocketManager) disconnectClient(client *room.Client) {
-	wm.clientMtx.Lock()
-	defer wm.clientMtx.Unlock()
-
-	delete(wm.clients, client.ID)
-	log.Println("[WS] Client disconnected:", client.ID)
-}
-
-func (wm *WebSocketManager) sendPings(client *room.Client) {
+// sendPings sends periodic pings to the client to keep the connection alive
+func (wm *WebSocketManager) sendPings(client *Client) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	pingFailures := 0
 	for range ticker.C {
-		if err := client.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-			log.Println("[WS] Ping error:", err)
-			return
+		if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			log.Println("[WS] Failed to send ping:", err)
+			pingFailures++
+			if pingFailures >= 3 {
+				log.Printf("[WS] Client %s failed to respond to pings. Closing connection.", client.ID)
+				client.Conn.Close()
+				return
+			}
+		} else {
+			pingFailures = 0 // Reset on successful ping
 		}
-	}
-}
-
-func (wm *WebSocketManager) SetupDataChannel(peerConnection *webrtc.PeerConnection, clientID string) {
-	dataChannel, err := peerConnection.CreateDataChannel("default", nil)
-	if err != nil {
-		log.Println("[WS] Error creating DataChannel:", err)
-		return
-	}
-
-	dataChannel.OnOpen(func() {
-		log.Println("[WS] DataChannel opened for client:", clientID)
-	})
-
-	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Printf("[WS] DataChannel received message from %s: %s\n", clientID, string(msg.Data))
-	})
-
-	wm.DataChannels[clientID] = dataChannel
-}
-
-func (wm *WebSocketManager) sendDataToDataChannel(clientID string, message []byte) {
-	dataChannel, exists := wm.DataChannels[clientID]
-	if !exists || dataChannel == nil {
-		log.Printf("[WS] No DataChannel found for client %s\n", clientID)
-		return
-	}
-
-	err := dataChannel.Send(message)
-	if err != nil {
-		log.Printf("[WS] Error sending message to DataChannel for client %s: %v\n", clientID, err)
 	}
 }

@@ -16,15 +16,26 @@ import (
 // message struct for websocket connection
 type Message struct {
 	Type    string `json:"type"`
-	RoomID  string `json:"roomId"`
-	Sender  string `json:"sender"`
+	RoomID  uint32 `json:"roomId"`
+	Sender  uint64 `json:"sender"`
+	Target  uint64 `json:"target,omitempty"`
 	Content string `json:"content"`
 }
 
-// this connects to the websocket server then creates a new room
-func CreateRoom(serverUrl, apikey string) (*websocket.Conn, error) { // added apikey
+var (
+	apiKey        = "my-api-key"
+	roomID uint32 = 1001
+	userID uint64 = 92633
+	conn   *websocket.Conn
+	peers  = make(map[uint64]*webrtc.PeerConnection)
+)
+
+// this connects to the websocket server
+func connectWebsocket(serverUrl string, apikey string, userID uint64) (*websocket.Conn, error) { // added apikey
 	headers := http.Header{}
 	headers.Set("X-Api-Key", apikey) // get API key from list
+	headers.Set("X-User-ID", fmt.Sprintf("%d", userID))
+
 	conn, _, err := websocket.DefaultDialer.Dial(serverUrl, headers)
 	if err != nil {
 		return nil, fmt.Errorf("[Client] failed to connect to websocket: %v", err)
@@ -34,23 +45,8 @@ func CreateRoom(serverUrl, apikey string) (*websocket.Conn, error) { // added ap
 	return conn, nil
 }
 
-// connectcs to an existing room
-func JoinRoom(serverUrl, roomID, apiKey string) (*websocket.Conn, error) {
-	headers := http.Header{}
-	headers.Set("X-API-Key", apiKey) // apikey from list
-	headers.Set("X-Room-ID", roomID)
-
-	conn, _, err := websocket.DefaultDialer.Dial(serverUrl, headers)
-	if err != nil {
-		return nil, fmt.Errorf("[Joining room] failed to join room: %v", err)
-	}
-	fmt.Println("[Joining room] Success in joining room:", serverUrl)
-	return conn, nil
-}
-
 // init webrtc connection
-
-func InitializePeerConnection(conn *websocket.Conn, roomID string) (*webrtc.PeerConnection, error) { // using defaul stun no turn server
+func createPeerConnection(remoteID uint64) (*webrtc.PeerConnection, error) { // using defaul stun no turn server
 	stunServer := "stun:stun.1.google.com:19302"
 
 	config := webrtc.Configuration{
@@ -67,20 +63,20 @@ func InitializePeerConnection(conn *websocket.Conn, roomID string) (*webrtc.Peer
 	// handles ice candidatesdidate)
 	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
-			candidate := c.ToJSON()
-			candidateJSON, _ := json.Marshal(candidate)
+			candidate, _ := json.Marshal(c.ToJSON())
 
 			msg := Message{
 				Type:    "ice-candidate",
 				RoomID:  roomID,
-				Content: string(candidateJSON),
+				Sender:  uint64(userID),
+				Target:  remoteID,
+				Content: string(candidate),
 			}
 			conn.WriteJSON(msg) // sends ice candidate via webscoket connection
 		}
 	})
 	peerConnection.OnNegotiationNeeded(func() {
-		log.Println("[SDP] Negotiation needed, creating an offer..")
-
+		log.Println("[WERTC] Negotiation needed with", remoteID)
 		offer, err := peerConnection.CreateOffer(nil)
 		if err != nil {
 			log.Println("[Error] failed to create offer:", err)
@@ -95,6 +91,8 @@ func InitializePeerConnection(conn *websocket.Conn, roomID string) (*webrtc.Peer
 		msg := Message{
 			Type:    "offer",
 			RoomID:  roomID,
+			Sender:  userID,
+			Target:  remoteID,
 			Content: offer.SDP,
 		}
 		conn.WriteJSON(msg) // send sdp offer via websocket connection
@@ -117,6 +115,52 @@ func InitializePeerConnection(conn *websocket.Conn, roomID string) (*webrtc.Peer
 	return peerConnection, nil
 }
 
+func handleMessage(msg Message) {
+	if msg.Sender == userID {
+		return
+	}
+
+	peerConnection, exists := peers[msg.Sender]
+	if !exists {
+		log.Println("[WEBRTC] New peer:", msg.Sender)
+		NewPeerConnection, err := createPeerConnection(msg.Sender)
+		if err != nil {
+			log.Println("Error creating peer connection", err)
+			return
+		}
+		peers[msg.Sender] = NewPeerConnection
+		peerConnection = NewPeerConnection
+	}
+
+	switch msg.Type {
+	case "offer":
+		log.Println("[SIGNAL] Received offer from", msg.Sender)
+		peerConnection.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: msg.Content})
+
+		answer, _ := peerConnection.CreateAnswer(nil)
+		peerConnection.SetLocalDescription(answer)
+
+		reply := Message{
+			Type:    "answer",
+			RoomID:  roomID,
+			Sender:  userID,
+			Target:  msg.Sender,
+			Content: answer.SDP,
+		}
+		conn.WriteJSON(reply)
+
+	case "answer":
+		log.Println("[SIGNAL] Received answer from", msg.Sender)
+		peerConnection.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: msg.Content})
+
+	case "ice-candidate":
+		var candidate webrtc.ICECandidateInit
+		json.Unmarshal([]byte(msg.Content), &candidate)
+		peerConnection.AddICECandidate(candidate)
+
+	}
+}
+
 func main() {
 	// websocket server url
 	defaultPort := "8080"
@@ -125,22 +169,15 @@ func main() {
 		port = defaultPort
 	}
 	serverURL := fmt.Sprintf("ws://localhost:%s/ws", port)
-	// to retrieve from config file
-	apiKey := "my-api-key"
-	roomID := "test-room"
 
 	// websocket create room
-	conn, err := CreateRoom(serverURL, apiKey)
+	var err error
+	conn, err := connectWebsocket(serverURL, apiKey, userID)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to connect", err)
 	}
 	defer conn.Close()
 
-	peerConnection, err := InitializePeerConnection(conn, roomID)
-	if err != nil {
-		log.Fatal("[ERROR] failed to initialize WebRTC:", err)
-	}
-	defer peerConnection.Close()
 	// to close system
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
@@ -160,35 +197,7 @@ func main() {
 				log.Println("[ERROR] Failed to parse WebSocket message:", err)
 				continue
 			}
-
-			switch msg.Type {
-			case "offer":
-				log.Println("[SIGNALING] Received offer, creating answer...")
-				offer := webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: msg.Content}
-				peerConnection.SetRemoteDescription(offer)
-
-				answer, err := peerConnection.CreateAnswer(nil)
-				if err != nil {
-					log.Println("[ERROR] Failed to create answer:", err)
-					continue
-				}
-
-				peerConnection.SetLocalDescription(answer)
-
-				response := Message{Type: "answer", RoomID: msg.RoomID, Sender: msg.Sender, Content: answer.SDP}
-				conn.WriteJSON(response)
-
-			case "answer":
-				log.Println("[SIGNALING] Received answer")
-				answer := webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: msg.Content}
-				peerConnection.SetRemoteDescription(answer)
-
-			case "ice-candidate":
-				log.Println("[SIGNALING] Received ICE candidate")
-				var candidate webrtc.ICECandidateInit
-				json.Unmarshal([]byte(msg.Content), &candidate)
-				peerConnection.AddICECandidate(candidate)
-			}
+			handleMessage(msg)
 		}
 	}()
 
