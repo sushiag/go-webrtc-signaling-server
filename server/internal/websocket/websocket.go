@@ -114,16 +114,20 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 			continue
 		}
 
-		log.Printf("[WS] Received message from %d", userID)
+		log.Printf("[WS] Received message from %d of type %s", userID, msg.Type)
 
-		// adds the user to the room
+		// Handle room join
 		if msg.RoomID != 0 {
 			wm.AddUserToRoom(msg.RoomID, userID)
 		}
 
-		// fowards the message to the target user if needed
-		if msg.Target != 0 {
-			wm.forwardToTarget(msg)
+		switch msg.Type {
+		case "signal":
+			if msg.Target != 0 {
+				wm.forwardToTarget(msg)
+			}
+		case "disconnect":
+			go wm.HandleDisconnect(msg)
 		}
 	}
 }
@@ -217,5 +221,38 @@ func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
 		} else {
 			pingFailures = 0 // Reset on successful ping
 		}
+	}
+}
+
+// HandleDisconnect handles graceful closing of WebSocket connections once P2P is established
+func (wm *WebSocketManager) HandleDisconnect(msg Message) {
+	if !wm.AreInSameRoom(msg.RoomID, msg.Sender, msg.Target) {
+		log.Printf("[WS] Disconnect failed: %d and %d not in room %d", msg.Sender, msg.Target, msg.RoomID)
+		return
+	}
+
+	wm.mtx.Lock()
+	defer wm.mtx.Unlock()
+
+	// Close sender's connection
+	if conn, exists := wm.connections[msg.Sender]; exists {
+		conn.Close()
+		delete(wm.connections, msg.Sender)
+		delete(wm.rooms[msg.RoomID], msg.Sender)
+		log.Printf("[WS] Disconnected sender %d", msg.Sender)
+	}
+
+	// Close target's connection
+	if conn, exists := wm.connections[msg.Target]; exists {
+		conn.Close()
+		delete(wm.connections, msg.Target)
+		delete(wm.rooms[msg.RoomID], msg.Target)
+		log.Printf("[WS] Disconnected target %d", msg.Target)
+	}
+
+	// Optionally delete the room if empty
+	if len(wm.rooms[msg.RoomID]) == 0 {
+		delete(wm.rooms, msg.RoomID)
+		log.Printf("[WS] Room %d deleted", msg.RoomID)
 	}
 }
