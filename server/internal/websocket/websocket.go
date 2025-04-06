@@ -1,11 +1,11 @@
 package websocket
 
 import (
+	"bufio"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
-	"strconv"
+	"os"
 	"sync"
 	"time"
 
@@ -23,10 +23,13 @@ type Message struct {
 
 // struct for websocketManager with room logic
 type WebSocketManager struct {
-	connections map[uint64]*websocket.Conn // stores connections by user ID
-	rooms       map[uint64]map[uint64]bool // stores users by room ID
-	mtx         sync.RWMutex
-	upgrader    websocket.Upgrader
+	connections    map[uint64]*websocket.Conn // stores connections by user ID
+	rooms          map[uint64]map[uint64]bool // stores users by room ID
+	mtx            sync.RWMutex
+	upgrader       websocket.Upgrader
+	validApiKeys   map[string]bool
+	apiKeyToUserID map[string]uint64 // maps API key to assigned user ID
+	nextUserID     uint64            // counter for the next user ID to assign
 }
 
 // creates a new WebSocket manager
@@ -37,19 +40,41 @@ func NewWebSocketManager() *WebSocketManager {
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true }, // Customize as needed
 		},
+		apiKeyToUserID: make(map[string]uint64),
+		nextUserID:     1, // Start user IDs from 1
 	}
 }
 
 // checks the API key in the WebSocket request
 func (wm *WebSocketManager) Authenticate(r *http.Request) bool {
 	apiKey := r.Header.Get("X-Api-Key")
-	validApiKeys := map[string]bool{
-		"valid-api-key-1": true,
-		"valid-api-key-2": true,
-		"valid-api-key-3": true,
+	return wm.validApiKeys[apiKey]
+}
+
+func (wm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
+	wm.validApiKeys = keys
+}
+
+func LoadValidApiKeys(filePath string) (map[string]bool, error) {
+	validApiKeys := make(map[string]bool)
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		key := scanner.Text()
+		validApiKeys[key] = true
 	}
 
-	return validApiKeys[apiKey]
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return validApiKeys, nil
 }
 
 // this manages WebSocket connections, using API key for authentication
@@ -58,15 +83,18 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	// get the API key AND UserID from the request header
 	apiKey := r.Header.Get("X-Api-Key")
-	userIDStr := r.Header.Get("X-User-ID")
-	userID, err := strconv.ParseUint(userIDStr, 10, 64)
-	if err != nil {
-		log.Println("[WS] Failed to convert: ", err)
-		return
+
+	// Check if the API key has already been assigned a userID
+	wm.mtx.Lock()
+	userID, exists := wm.apiKeyToUserID[apiKey]
+	if !exists {
+		// Assign the next available userID
+		userID = wm.nextUserID
+		wm.apiKeyToUserID[apiKey] = userID
+		wm.nextUserID++ // Increment for the next user
 	}
+	wm.mtx.Unlock()
 
 	conn, err := wm.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -75,26 +103,22 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// stores the client userid in the WebSocket manager
+	// Store the client userID in the WebSocket manager
 	wm.mtx.Lock()
 	wm.connections[userID] = conn
 	wm.mtx.Unlock()
 
-	log.Printf("[WS] Client %s connected", apiKey)
+	log.Printf("[WS] User %d connected", userID)
+
+	// Remove the client userID when it disconnects
 	defer func() {
-		// removes the client apikey when it disconnects
 		wm.mtx.Lock()
 		delete(wm.connections, userID)
 		wm.mtx.Unlock()
+		log.Printf("[WS] User %d disconnected", userID)
 	}()
 
-	// sends the API key to the client
-	if err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type": "api_key", "api_key": "%s"}`, apiKey))); err != nil {
-		log.Printf("[WS] Failed to send API key to client %s: %v", apiKey, err)
-		return
-	}
-
-	// read incoming WebSocket messages
+	// Read incoming WebSocket messages
 	go wm.readMessages(userID, conn)
 	wm.sendPings(userID, conn)
 }
@@ -116,18 +140,17 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 
 		log.Printf("[WS] Received message from %d of type %s", userID, msg.Type)
 
-		// Handle room join
-		if msg.RoomID != 0 {
-			wm.AddUserToRoom(msg.RoomID, userID)
-		}
-
 		switch msg.Type {
-		case "signal":
+		case "join":
+			wm.AddUserToRoom(msg.RoomID, userID)
+		case "offer", "answer", "ice-candidate":
 			if msg.Target != 0 {
 				wm.forwardToTarget(msg)
 			}
 		case "disconnect":
 			go wm.HandleDisconnect(msg)
+		default:
+			log.Printf("[WS] Unknown message type: %s from user %d", msg.Type, userID)
 		}
 	}
 }
@@ -201,6 +224,17 @@ func (wm *WebSocketManager) AreInSameRoom(roomID uint64, user1 uint64, user2 uin
 		return room[user1] && room[user2]
 	}
 	return false
+}
+
+func (wm *WebSocketManager) Shutdown() {
+	wm.mtx.Lock()
+	defer wm.mtx.Unlock()
+
+	for userID, conn := range wm.connections {
+		conn.Close()
+		delete(wm.connections, userID)
+	}
+	log.Println("[WS] All WebSocket connections closed")
 }
 
 // sendPings sends periodic pings to the client to keep the connection alive

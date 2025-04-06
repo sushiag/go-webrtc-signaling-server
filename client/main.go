@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -22,13 +25,35 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+type PeerManager struct {
+	peers map[uint64]*webrtc.PeerConnection
+}
+
 var (
-	apiKey        = "my-api-key"
-	roomID uint32 = 1001
-	userID uint64 = 92633
-	conn   *websocket.Conn
-	peers  = make(map[uint64]*webrtc.PeerConnection)
+	roomID      uint32
+	userID      uint64
+	conn        *websocket.Conn
+	peerManager = NewPeerManager()
 )
+
+func NewPeerManager() *PeerManager {
+	return &PeerManager{
+		peers: make(map[uint64]*webrtc.PeerConnection),
+	}
+}
+
+func (pm *PeerManager) Add(userID uint64, pc *webrtc.PeerConnection) {
+	pm.peers[userID] = pc
+}
+
+func (pm *PeerManager) Get(userID uint64) (*webrtc.PeerConnection, bool) {
+	pc, exists := pm.peers[userID]
+	return pc, exists
+}
+
+func (pm *PeerManager) Remove(userID uint64) {
+	delete(pm.peers, userID)
+}
 
 // this connects to the websocket server
 func connectWebsocket(serverUrl string, apikey string, userID uint64) (*websocket.Conn, error) { // added apikey
@@ -40,7 +65,6 @@ func connectWebsocket(serverUrl string, apikey string, userID uint64) (*websocke
 	if err != nil {
 		return nil, fmt.Errorf("[Client] failed to connect to websocket: %v", err)
 	}
-
 	fmt.Println("Connected to websocket server:", serverUrl)
 	return conn, nil
 }
@@ -95,7 +119,8 @@ func createPeerConnection(remoteID uint64) (*webrtc.PeerConnection, error) { // 
 			Target:  remoteID,
 			Content: offer.SDP,
 		}
-		conn.WriteJSON(msg) // send sdp offer via websocket connection
+		conn.WriteJSON(msg)
+		// send sdp offer via websocket connection
 	})
 
 	// handles wertc tracks for media use
@@ -115,30 +140,44 @@ func createPeerConnection(remoteID uint64) (*webrtc.PeerConnection, error) { // 
 	return peerConnection, nil
 }
 
+// manages signaling messages
 func handleMessage(msg Message) {
 	if msg.Sender == userID {
 		return
 	}
 
-	peerConnection, exists := peers[msg.Sender]
+	peerConnection, exists := peerManager.Get(msg.Sender)
 	if !exists {
-		log.Println("[WEBRTC] New peer:", msg.Sender)
+		log.Println("[WEBRTC] Creating new conection for:", msg.Sender)
 		NewPeerConnection, err := createPeerConnection(msg.Sender)
 		if err != nil {
 			log.Println("Error creating peer connection", err)
 			return
 		}
-		peers[msg.Sender] = NewPeerConnection
+		peerManager.Add(msg.Sender, NewPeerConnection)
 		peerConnection = NewPeerConnection
 	}
 
 	switch msg.Type {
 	case "offer":
-		log.Println("[SIGNAL] Received offer from", msg.Sender)
-		peerConnection.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: msg.Content})
+		log.Println("[SIGNAL] Received offer from:", msg.Sender)
+		if err := peerConnection.SetRemoteDescription(webrtc.SessionDescription{
+			Type: webrtc.SDPTypeOffer,
+			SDP:  msg.Content,
+		}); err != nil {
+			log.Println("Error in setting up remote description:", err)
+			return
+		}
 
-		answer, _ := peerConnection.CreateAnswer(nil)
-		peerConnection.SetLocalDescription(answer)
+		answer, err := peerConnection.CreateAnswer(nil)
+		if err != nil {
+			log.Println("Error creating answer:", err)
+			return
+		}
+		if err := peerConnection.SetLocalDescription(answer); err != nil {
+			log.Println("Error setting local description:", err)
+			return
+		}
 
 		reply := Message{
 			Type:    "answer",
@@ -151,32 +190,84 @@ func handleMessage(msg Message) {
 
 	case "answer":
 		log.Println("[SIGNAL] Received answer from", msg.Sender)
-		peerConnection.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: msg.Content})
+		if err := peerConnection.SetRemoteDescription(webrtc.SessionDescription{
+			Type: webrtc.SDPTypeAnswer,
+			SDP:  msg.Content,
+		}); err != nil {
+			log.Println("Error setting remote description:", err)
+		}
 
 	case "ice-candidate":
 		var candidate webrtc.ICECandidateInit
-		json.Unmarshal([]byte(msg.Content), &candidate)
-		peerConnection.AddICECandidate(candidate)
+		if err := json.Unmarshal([]byte(msg.Content), &candidate); err != nil {
+			log.Println("Error unmarshalling ICE CANDIDATE:", err)
+			return
+		}
+		if err := peerConnection.AddICECandidate(candidate); err != nil {
+			log.Println("Error adding ICE CANDIDATE:", err)
+		}
 
 	}
 }
 
 func main() {
-	// websocket server url
-	defaultPort := "8080"
-	port := os.Getenv("WS_PORT") // adjust path as needed to
+	// Load environment variables from .env file.
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using default values")
+	}
+	apiKeys := strings.Split(os.Getenv("API_KEYS"), ",")
+	apiKey := ""
+
+	if len(apiKey) > 0 {
+		apiKey = apiKeys[0]
+	}
+	if apiKey == "" {
+		log.Println("No Available API kEY, Check .env File")
+	}
+	roomStr := os.Getenv("ROOM_ID")
+	userStr := os.Getenv("USER_ID")
+
+	if roomStr == "" || userStr == "" {
+		log.Fatal("ROOM_ID and USER_ID must be set")
+	}
+
+	roomID64, err := strconv.ParseUint(roomStr, 10, 32)
+	if err != nil {
+		log.Println("Invalid ROOM_ID, using default 1001")
+		roomID = 1001
+	} else {
+		roomID = uint32(roomID64)
+	}
+
+	userIDParsed, err := strconv.ParseUint(userStr, 10, 64)
+	if err != nil {
+		userID = 92633
+	} else {
+		userID = userIDParsed
+	}
+
+	// read configuration from environment variables.
+	port := os.Getenv("WS_PORT")
 	if port == "" {
-		port = defaultPort
+		port = "8080"
 	}
 	serverURL := fmt.Sprintf("ws://localhost:%s/ws", port)
 
 	// websocket create room
-	var err error
 	conn, err := connectWebsocket(serverURL, apiKey, userID)
 	if err != nil {
 		log.Fatal("failed to connect", err)
 	}
 	defer conn.Close()
+
+	joinMsg := Message{
+		Type:   "join",
+		RoomID: roomID,
+		Sender: userID,
+	}
+	if err := conn.WriteJSON(joinMsg); err != nil {
+		log.Println("[ERROR] Failed to send join message:", err)
+	}
 
 	// to close system
 	interrupt := make(chan os.Signal, 1)
