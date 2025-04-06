@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -215,14 +214,10 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using default values")
 	}
-	apiKeys := strings.Split(os.Getenv("API_KEYS"), ",")
-	apiKey := ""
+	apiKey := os.Getenv("API_KEYS")
 
-	if len(apiKey) > 0 {
-		apiKey = apiKeys[0]
-	}
 	if apiKey == "" {
-		log.Println("No Available API kEY, Check .env File")
+		log.Println("No Available API key, Check .env File")
 	}
 	roomStr := os.Getenv("ROOM_ID")
 	userStr := os.Getenv("USER_ID")
@@ -299,14 +294,22 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			msg := "Hello from WebSocket client!"
-			conn.WriteMessage(websocket.TextMessage, []byte(msg))
+			msg := Message{
+				Type:    "text",
+				RoomID:  roomID,
+				Sender:  userID,
+				Content: "Success on connecting to signaling server",
+			}
+			err := conn.WriteJSON(msg)
+			if err != nil {
+				log.Println("[ERROR] Failed to send message:", err)
+			}
 			fmt.Println("[CLIENT] Sent:", msg)
-
 		case <-interrupt:
 			fmt.Println("[SYSTEM] Received interrupt, closing connection...")
 			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Goodbye!"))
 			return
 		}
 	}
+
 }

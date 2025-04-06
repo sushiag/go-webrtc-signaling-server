@@ -107,14 +107,14 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Store the client userID in the WebSocket manager
+	// stores the client userID in the WebSocket manager
 	wm.mtx.Lock()
 	wm.connections[userID] = conn
 	wm.mtx.Unlock()
 
 	log.Printf("[WS] User %d connected", userID)
 
-	// Remove the client userID when it disconnects
+	// this removes the client userID when it disconnects
 	defer func() {
 		wm.mtx.Lock()
 		delete(wm.connections, userID)
@@ -153,6 +153,8 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 			}
 		case "disconnect":
 			go wm.HandleDisconnect(msg)
+		case "text":
+			fmt.Printf("[SERVER] Received text message: %s\n", msg.Content)
 		default:
 			log.Printf("[WS] Unknown message type: %s from user %d", msg.Type, userID)
 		}
@@ -209,11 +211,9 @@ func (wm *WebSocketManager) AddUserToRoom(roomID uint64, userID uint64) {
 	wm.mtx.Lock()
 	defer wm.mtx.Unlock()
 
-	// Initialize the room if it doesn't exist
 	if _, exists := wm.rooms[roomID]; !exists {
 		wm.rooms[roomID] = make(map[uint64]bool)
 	}
-	// Add user to the room
 	wm.rooms[roomID][userID] = true
 	log.Printf("[WS] User %d added to room %d", userID, roomID)
 }
@@ -252,17 +252,18 @@ func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
 			log.Println("[WS] Failed to send ping:", err)
 			pingFailures++
 			if pingFailures >= 3 {
-				log.Printf("[WS] Client %d failed to respond to pings. Closing connection.", userID)
+				log.Printf("[WS] Client %d failed to respond to pings after 3 attempts. Closing connection.", userID)
 				conn.Close()
 				return
 			}
+
 		} else {
-			pingFailures = 0 // Reset on successful ping
+			pingFailures = 0
 		}
 	}
 }
 
-// HandleDisconnect handles graceful closing of WebSocket connections once P2P is established
+// this handles graceful closing of WebSocket connections once P2P is established
 func (wm *WebSocketManager) HandleDisconnect(msg Message) {
 	if !wm.AreInSameRoom(msg.RoomID, msg.Sender, msg.Target) {
 		log.Printf("[WS] Disconnect failed: %d and %d not in room %d", msg.Sender, msg.Target, msg.RoomID)
@@ -272,7 +273,7 @@ func (wm *WebSocketManager) HandleDisconnect(msg Message) {
 	wm.mtx.Lock()
 	defer wm.mtx.Unlock()
 
-	// Close sender's connection
+	// Disconnect sender
 	if conn, exists := wm.connections[msg.Sender]; exists {
 		conn.Close()
 		delete(wm.connections, msg.Sender)
@@ -280,7 +281,7 @@ func (wm *WebSocketManager) HandleDisconnect(msg Message) {
 		log.Printf("[WS] Disconnected sender %d", msg.Sender)
 	}
 
-	// Close target's connection
+	// Disconnect target
 	if conn, exists := wm.connections[msg.Target]; exists {
 		conn.Close()
 		delete(wm.connections, msg.Target)
@@ -288,7 +289,7 @@ func (wm *WebSocketManager) HandleDisconnect(msg Message) {
 		log.Printf("[WS] Disconnected target %d", msg.Target)
 	}
 
-	// Optionally delete the room if empty
+	// Clean up the room if it’s empty
 	if len(wm.rooms[msg.RoomID]) == 0 {
 		delete(wm.rooms, msg.RoomID)
 		log.Printf("[WS] Room %d deleted", msg.RoomID)
