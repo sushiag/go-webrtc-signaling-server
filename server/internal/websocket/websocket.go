@@ -3,6 +3,7 @@ package websocket
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -55,23 +56,26 @@ func (wm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
 	wm.validApiKeys = keys
 }
 
-func LoadValidApiKeys(filePath string) (map[string]bool, error) {
+func LoadValidApiKeys() (map[string]bool, error) {
 	validApiKeys := make(map[string]bool)
 
-	file, err := os.Open(filePath)
+	// Open the .txt file
+	file, err := os.Open("apikeys.txt") // Update the file path if necessary
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not open file: %v", err)
 	}
 	defer file.Close()
 
+	// Create a scanner to read the file line by line
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		key := scanner.Text()
-		validApiKeys[key] = true
+		// Add each API key to the map
+		validApiKeys[scanner.Text()] = true
 	}
 
+	// Check for any errors encountered while reading the file
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not read file: %v", err)
 	}
 
 	return validApiKeys, nil

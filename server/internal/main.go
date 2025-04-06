@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"server/internal/API"
-
 	"server/internal/websocket"
 )
 
@@ -14,7 +12,7 @@ var validApiKeys map[string]bool
 func main() {
 	// Load valid API keys
 	var err error
-	validApiKeys, err = API.LoadValidApiKeys() // Call the function to load the keys as a map
+	validApiKeys, err = websocket.LoadValidApiKeys() // Call the function to load the keys as a map
 	if err != nil {
 		log.Fatalf("Error loading API keys: %v", err)
 	}
