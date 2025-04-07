@@ -11,7 +11,7 @@ var validApiKeys map[string]bool
 func main() {
 	// Load valid API keys
 	var err error
-	validApiKeys, err = websocket.LoadValidApiKeys() // Call the function to load the keys as a map
+	validApiKeys, err = websocket.LoadValidApiKeys("apikeys.txt") // Call the function to load the keys as a map
 	if err != nil {
 		log.Fatalf("Error loading API keys: %v", err)
 	}
@@ -20,7 +20,7 @@ func main() {
 	// for testing only, commenting outfmt.Println("Loaded API Keys:", validApiKeys)
 
 	// Create a new WebSocketManager and set the valid API keys
-	wsManager := websocket.NewWebSocketManager()
+	wsManager := websocket.NewWebSocketManager("apikeys.txt")
 	wsManager.SetValidApiKeys(validApiKeys) // Set valid API keys in WebSocketManager
 
 	// Register the WebSocket handler

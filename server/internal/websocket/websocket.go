@@ -34,7 +34,7 @@ type WebSocketManager struct {
 }
 
 // creates a new WebSocket manager
-func NewWebSocketManager() *WebSocketManager {
+func NewWebSocketManager(api_keys_path string) *WebSocketManager {
 	return &WebSocketManager{
 		connections: make(map[uint64]*websocket.Conn),
 		rooms:       make(map[uint64]map[uint64]bool),
@@ -56,7 +56,7 @@ func (wm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
 	wm.validApiKeys = keys
 }
 
-func LoadValidApiKeys() (map[string]bool, error) {
+func LoadValidApiKeys(api_keys_path string) (map[string]bool, error) {
 	validApiKeys := make(map[string]bool)
 
 	// Open the .txt file
