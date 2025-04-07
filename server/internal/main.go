@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"server/internal/websocket"
@@ -18,7 +17,7 @@ func main() {
 	}
 
 	// Print the loaded API keys (optional)
-	fmt.Println("Loaded API Keys:", validApiKeys)
+	// for testing only, commenting outfmt.Println("Loaded API Keys:", validApiKeys)
 
 	// Create a new WebSocketManager and set the valid API keys
 	wsManager := websocket.NewWebSocketManager()

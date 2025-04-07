@@ -55,7 +55,7 @@ func (pm *PeerManager) Remove(userID uint64) {
 }
 
 // this connects to the websocket server
-func connectWebsocket(serverUrl string, apikey string, userID uint64) (*websocket.Conn, error) { // added apikey
+func connectToWebsocket(serverUrl string, apikey string, userID uint64) (*websocket.Conn, error) { // added apikey
 	headers := http.Header{}
 	headers.Set("X-Api-Key", apikey) // get API key from list
 	headers.Set("X-User-ID", fmt.Sprintf("%d", userID))
@@ -127,11 +127,42 @@ func createPeerConnection(remoteID uint64) (*webrtc.PeerConnection, error) { // 
 		log.Printf("[WebRTC] new track received: %s\n", track.Kind())
 	})
 
+	dataChannel, err := peerConnection.CreateDataChannel("fileTransfer", nil)
+	if err != nil {
+		log.Fatalf("Failed to create data channel: %v", err)
+	}
+
+	dataChannel.OnOpen(func() {
+		log.Println("[DATA CHANNEL] Opened")
+	})
+
+	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+		log.Printf("[DATA CHANNEL] Received: %d bytes", len(msg.Data))
+
+	})
+
+	peerConnection.OnDataChannel(func(dc *webrtc.DataChannel) {
+		log.Printf("[DATA CHANNEL] New channel: %s", dc.Label())
+	})
 	// handles ice connection state change
 	peerConnection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		log.Printf("[ICE] Connection state change to: %s", state.String())
 
-		if state == webrtc.ICEConnectionStateFailed {
+		switch state {
+		case webrtc.ICEConnectionStateConnected:
+			log.Println("[ICE] Connected! Closing signaling server connection...")
+
+			// Send disconnect message
+			disconnectMsg := Message{
+				Type:   "disconnect",
+				RoomID: roomID,
+				Sender: userID,
+				Target: remoteID, // or leave blank depending on your logic
+			}
+			conn.WriteJSON(disconnectMsg)
+
+			conn.Close()
+		case webrtc.ICEConnectionStateFailed:
 			log.Println("[ICE] connection failed. Restarting ICE..")
 			peerConnection.CreateOffer(&webrtc.OfferOptions{ICERestart: true})
 		}
@@ -217,7 +248,7 @@ func main() {
 	apiKey := os.Getenv("API_KEYS")
 
 	if apiKey == "" {
-		log.Println("No Available API key, Check .env File")
+		log.Println("No Available API KEY Check .env File")
 	}
 	roomStr := os.Getenv("ROOM_ID")
 	userStr := os.Getenv("USER_ID")
@@ -249,7 +280,7 @@ func main() {
 	serverURL := fmt.Sprintf("ws://localhost:%s/ws", port)
 
 	// websocket create room
-	conn, err := connectWebsocket(serverURL, apiKey, userID)
+	conn, err := connectToWebsocket(serverURL, apiKey, userID)
 	if err != nil {
 		log.Fatal("failed to connect", err)
 	}
@@ -298,7 +329,7 @@ func main() {
 				Type:    "text",
 				RoomID:  roomID,
 				Sender:  userID,
-				Content: "Success on connecting to signaling server",
+				Content: "Connected to the signaling server",
 			}
 			err := conn.WriteJSON(msg)
 			if err != nil {
