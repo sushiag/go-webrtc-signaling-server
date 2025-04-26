@@ -1,0 +1,225 @@
+package clienthandle
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+
+	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
+)
+
+// pre-defined constants for all the signaling messages types used in client-server communication
+const (
+	MessageTypeCreateRoom   = "create-room"
+	MessageTypeRoomCreated  = "room-created"
+	MessageTypeJoinRoom     = "join-room"
+	MessageTypeRoomJoined   = "room-joined"
+	MessageTypeOffer        = "offer"
+	MessageTypeAnswer       = "answer"
+	MessageTypeICECandidate = "ice-candidate"
+	MessageTypeDisconnect   = "disconnect"
+	MessageTypePeerJoined   = "peer-joined"
+	MessageTypePeerListReq  = "peer-list-request"
+	MessageTypePeerList     = "peer-list"
+	MessageTypeStart        = "start"
+)
+
+// defined struct 'Message' for websocket communication
+type Message struct {
+	Type      string   `json:"type"`                // type of message
+	Content   string   `json:"content,omitempty"`   // content
+	RoomID    uint64   `json:"roomid,omitempty"`    // room id
+	Sender    uint64   `json:"from,omitempty"`      // sender user id
+	Target    uint64   `json:"to,omitempty"`        // target user id
+	Candidate string   `json:"candidate,omitempty"` // ice-candiate string
+	SDP       string   `json:"sdp,omitempty"`       // session description
+	Users     []uint64 `json:"users,omitempty"`     // list of user ids
+}
+
+// defined struct client instance with connection and state data
+type Client struct {
+	Conn       *websocket.Conn // websocket connection
+	ServerURL  string          //server address
+	ApiKey     string          // api key for the auth
+	SessionKey string          // session key token to be received by the server
+	UserID     uint64          // unique id assigned to the client
+	RoomID     uint64          // current room joined, assigned to client, user
+	onMessage  func(Message)   // callback function for handling messagess
+	doneCh     chan struct{}   // chanel for the signal connection closing
+}
+
+// to load the .env file once the package/module initializes
+func init() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("[CLIENT SIGNALING] Warning: No .env file found or failed to load it")
+	}
+}
+
+// this creates and returns a new client default config
+func NewClient() *Client {
+	return &Client{
+		ServerURL: fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080")), // constructs websocket url for the .env
+		ApiKey:    os.Getenv("API_KEY"),                                           // gets api key from .env
+		doneCh:    make(chan struct{}),                                            // initializes donechl
+	}
+}
+
+// performs initial http authentication with api key to get session key and userid
+func (c *Client) PreAuthenticate() error {
+	url := fmt.Sprintf("http://localhost:%s/auth", getEnv("WS_PORT", "8080")) // this builds the auth url
+	payload := map[string]string{"apikey": c.ApiKey}                          // prepares the request body
+	body, _ := json.Marshal(payload)                                          // encodes to json
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body)) // sends request
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("[CLIENT SIGNALING] auth failed: %s", resp.Status)
+	}
+	// decodes the response unto user id and session key
+	var result struct {
+		UserID     uint64 `json:"userid"`
+		SessionKey string `json:"sessionkey"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+
+	c.UserID = result.UserID
+	c.SessionKey = result.SessionKey
+	return nil
+}
+
+// initializes the webscoekt connection and starts listening for message
+func (c *Client) Init() error {
+	headers := http.Header{}
+	headers.Set("X-Api-Key", c.ApiKey) // set the auth header
+
+	conn, _, err := websocket.DefaultDialer.Dial(c.ServerURL, headers)
+	if err != nil {
+		return fmt.Errorf("[CLIENT SIGNALING] websocket connection failed: %v", err)
+	}
+
+	log.Println("[CLIENT SIGNALING] Connected to:", c.ServerURL)
+	c.Conn = conn
+	go c.listen()
+	return nil
+}
+
+func (c *Client) Close() {
+	select {
+	case <-c.doneCh:
+	default:
+		close(c.doneCh)
+		if c.Conn != nil {
+			_ = c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			_ = c.Conn.Close()
+		}
+		log.Println("[CLIENT SIGNALING] Connection closed")
+	}
+}
+
+func (c *Client) Send(msg Message) error {
+	if msg.RoomID == 0 {
+		msg.RoomID = c.RoomID
+	}
+	if msg.Sender == 0 {
+		msg.Sender = c.UserID
+	}
+	if err := c.Conn.WriteJSON(msg); err != nil {
+		log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type, err)
+		return err
+	}
+	return nil
+}
+
+func (c *Client) Join(roomID string) error {
+	roomIDUint64, err := strconv.ParseUint(roomID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("[CLIENT SIGNALING] invalid room ID: %v", err)
+	}
+	c.RoomID = roomIDUint64
+	return c.Send(Message{
+		Type:   MessageTypeJoinRoom,
+		RoomID: c.RoomID,
+	})
+}
+
+func (c *Client) Start() error {
+	return c.Send(Message{
+		Type: MessageTypeCreateRoom,
+	})
+}
+
+func (c *Client) SetMessageHandler(handler func(Message)) {
+	c.onMessage = handler
+}
+func (c *Client) listen() {
+	for {
+		select {
+		case <-c.doneCh:
+			return
+		default:
+			_, data, err := c.Conn.ReadMessage()
+			if err != nil {
+				if closeErr, ok := err.(*websocket.CloseError); ok {
+					log.Printf("[CLIENT SIGNALING] Failed to join room: %s", closeErr.Text)
+				} else {
+					log.Println("[CLIENT SIGNALING] Read error:", err)
+				}
+				c.Close()
+				return
+			}
+
+			var msg Message
+			if err := json.Unmarshal(data, &msg); err != nil {
+				log.Println("[CLIENT SIGNALING] Unmarshal error:", err)
+				continue
+			}
+
+			switch msg.Type {
+			case MessageTypeRoomCreated:
+				fmt.Printf("[CLIENT SIGNALING] \n Room created: %d\n Copy this Room ID and share it with a friend!\n\n", msg.RoomID)
+				c.RoomID = msg.RoomID
+				_ = c.Send(Message{Type: MessageTypePeerListReq})
+				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
+
+			case MessageTypeRoomJoined:
+				log.Printf("[CLIENT] Successfully joined room: %d", msg.RoomID)
+				c.RoomID = msg.RoomID
+				_ = c.Send(Message{Type: MessageTypePeerListReq})
+				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
+
+				_ = c.Send(Message{Type: MessageTypePeerListReq})
+				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
+
+			case MessageTypePeerJoined:
+				log.Printf("[SIGNALING] Peer joined: %d", msg.Sender)
+
+			case MessageTypeStart:
+				log.Printf("[PEER TO PEER] %d Disconnecting from server", msg.Sender)
+
+			}
+
+			if c.onMessage != nil {
+				c.onMessage(msg)
+			}
+		}
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
+}
