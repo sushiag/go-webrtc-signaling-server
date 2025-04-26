@@ -252,7 +252,6 @@ func (pm *PeerManager) HandleAnswer(msg clienthandle.Message) error {
 		SDP:  msg.SDP,
 	})
 }
-
 func (pm *PeerManager) HandleICECandidate(msg clienthandle.Message) error {
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
@@ -262,13 +261,18 @@ func (pm *PeerManager) HandleICECandidate(msg clienthandle.Message) error {
 		return fmt.Errorf("peer %d not found", msg.Sender)
 	}
 
+	log.Printf("[ICE] Handling ICE candidate from peer %d", msg.Sender)
 	err := peer.Connection.AddICECandidate(webrtc.ICECandidateInit{
 		Candidate: msg.Candidate,
 	})
 	if err != nil {
-		log.Printf("[ICE] Failed to add ICE candidate: %v", err)
+
+		log.Printf("[ICE] Failed to add ICE candidate from peer %d: %v", msg.Sender, err)
+		return err
 	}
-	return err
+
+	log.Printf("[ICE] Successfully added ICE candidate from peer %d", msg.Sender)
+	return nil
 }
 
 func (pm *PeerManager) GracefulShutdown() {

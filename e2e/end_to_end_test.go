@@ -1,16 +1,38 @@
 package e2e_test
 
 import (
+	"fmt"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	clienthandle "github.com/sushiag/go-webrtc-signaling-server/client/clienthandler"
 )
 
+// getEnv retrieves environment variables with a fallback to the default value if not set
+func getEnv(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+// TestClientToClientSignaling performs end-to-end signaling test between two clients
 func TestClientToClientSignaling(t *testing.T) {
+	// Manually set API key and port for each client
 	client1 := clienthandle.NewClient()
 	client2 := clienthandle.NewClient()
 
+	// Set the API key and port
+	client1.ApiKey = "valid-api-key-1"
+	client1.ServerURL = fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080"))
+
+	client2.ApiKey = "valid-api-key-2"
+	client2.ServerURL = fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080"))
+
+	// Perform authentication for both clients
 	err := client1.PreAuthenticate()
 	if err != nil {
 		t.Fatalf("client1 auth failed: %v", err)
@@ -34,10 +56,18 @@ func TestClientToClientSignaling(t *testing.T) {
 
 	done := make(chan bool)
 
+	// Handle messages for client1
 	client1.SetMessageHandler(func(msg clienthandle.Message) {
 		if msg.Type == clienthandle.MessageTypeRoomCreated {
+			// Log the RoomID for debugging
+			fmt.Printf("Received RoomID: %v\n", msg.RoomID)
+
+			// Convert RoomID to string before passing it to client2.Join
 			go func() {
-				err := client2.Join((string)(msg.RoomID))
+				roomIDStr := strconv.FormatUint(msg.RoomID, 10)
+				// Add more logging to check if client2 is joining
+				fmt.Printf("Client2 joining room with ID: %s\n", roomIDStr)
+				err := client2.Join(roomIDStr) // pass roomID as string
 				if err != nil {
 					t.Errorf("client2 failed to join: %v", err)
 				}
@@ -54,6 +84,17 @@ func TestClientToClientSignaling(t *testing.T) {
 				_ = client1.Send(startMsg)
 			}()
 		}
+
+		// Handle ICE candidates and pass them to the other client
+		if msg.Type == clienthandle.MessageTypeICECandidate {
+			go func() {
+				// Send the ICE candidate to the other client
+				err := client2.Send(msg)
+				if err != nil {
+					t.Errorf("client2 failed to send ICE candidate: %v", err)
+				}
+			}()
+		}
 	})
 
 	client2.SetMessageHandler(func(msg clienthandle.Message) {
@@ -61,8 +102,19 @@ func TestClientToClientSignaling(t *testing.T) {
 			t.Logf("Received 'start' signal, test complete")
 			done <- true
 		}
-	})
 
+		// Handle ICE candidates and add them to the peer connection via PeerManager
+		if msg.Type == clienthandle.MessageTypeICECandidate {
+			go func() {
+				// Use PeerManager to add the ICE candidate for client2's peer connection
+				err := pm.HandleICECandidate(msg) // pm is the PeerManager instance
+				if err != nil {
+					t.Errorf("client2 failed to add ICE candidate: %v", err)
+				}
+			}()
+		}
+	})
+	// Start the room creation by client1
 	err = client1.Start()
 	if err != nil {
 		t.Fatalf("client1 failed to create room: %v", err)
