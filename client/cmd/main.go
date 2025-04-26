@@ -1,12 +1,14 @@
 package main
 
 import (
-	"client/webrtchandler"
 	"flag"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
+	clienthandle "github.com/sushiag/go-webrtc-signaling-server/client/clienthandler"
+	"github.com/sushiag/go-webrtc-signaling-server/client/webrtchandler"
 )
 
 func main() {
