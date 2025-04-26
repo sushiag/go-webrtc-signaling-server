@@ -81,7 +81,7 @@ func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *
 			}
 		}
 
-		client.Close() // optional disconnect from signaling
+		// client.Close() commenting out for testing
 
 	}
 }

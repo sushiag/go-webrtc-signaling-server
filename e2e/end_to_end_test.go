@@ -57,6 +57,7 @@ func TestClientToClientSignaling(t *testing.T) {
 
 	// Initialize the WebRTC handlers or PeerManager for both clients
 	pm2 := webrtchandle.NewPeerManager()
+	client2.UserID = 2
 
 	done := make(chan bool)
 
