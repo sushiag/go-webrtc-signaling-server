@@ -1,11 +1,12 @@
 package webrtchandler
 
 import (
-	clienthandle "client/clienthandler"
 	"fmt"
 	"log"
 	"sync"
 	"time"
+
+	clienthandle "github.com/sushiag/go-webrtc-signaling-server/client/clienthandler"
 
 	"github.com/pion/webrtc/v4"
 )

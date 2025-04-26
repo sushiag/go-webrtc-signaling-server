@@ -8,6 +8,7 @@ import (
 	"time"
 
 	clienthandle "github.com/sushiag/go-webrtc-signaling-server/client/clienthandler"
+	webrtchandle "github.com/sushiag/go-webrtc-signaling-server/client/webrtchandler"
 )
 
 // getEnv retrieves environment variables with a fallback to the default value if not set
@@ -54,6 +55,9 @@ func TestClientToClientSignaling(t *testing.T) {
 	}
 	defer client2.Close()
 
+	// Initialize the WebRTC handlers or PeerManager for both clients
+	pm2 := webrtchandle.NewPeerManager()
+
 	done := make(chan bool)
 
 	// Handle messages for client1
@@ -97,23 +101,25 @@ func TestClientToClientSignaling(t *testing.T) {
 		}
 	})
 
+	// Handle messages for client2
 	client2.SetMessageHandler(func(msg clienthandle.Message) {
 		if msg.Type == clienthandle.MessageTypeStart {
 			t.Logf("Received 'start' signal, test complete")
 			done <- true
 		}
 
-		// Handle ICE candidates and add them to the peer connection via PeerManager
+		// Handle ICE candidates and add them to the peer connection
 		if msg.Type == clienthandle.MessageTypeICECandidate {
 			go func() {
-				// Use PeerManager to add the ICE candidate for client2's peer connection
-				err := pm.HandleICECandidate(msg) // pm is the PeerManager instance
+				// Use the WebRTC handler (or PeerManager) to add the ICE candidate for client2's peer connection
+				err := pm2.HandleICECandidate(msg) // Update this based on your WebRTC package
 				if err != nil {
 					t.Errorf("client2 failed to add ICE candidate: %v", err)
 				}
 			}()
 		}
 	})
+
 	// Start the room creation by client1
 	err = client1.Start()
 	if err != nil {
