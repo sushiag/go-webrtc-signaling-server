@@ -12,9 +12,12 @@ import (
 )
 
 type Peer struct {
-	ID          uint64
-	Connection  *webrtc.PeerConnection
-	DataChannel *webrtc.DataChannel
+	ID                    uint64
+	Connection            *webrtc.PeerConnection
+	DataChannel           *webrtc.DataChannel
+	bufferedICECandidates []webrtc.ICECandidateInit
+	remoteDescriptionSet  bool
+	mutex                 sync.Mutex
 }
 
 type PeerManager struct {
@@ -58,7 +61,7 @@ func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *
 
 	case clienthandle.MessageTypeAnswer:
 		log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
-		if err := pm.HandleAnswer(msg); err != nil {
+		if err := pm.HandleAnswer(msg, client); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Handle answer error: %v", err)
 		}
 
@@ -73,16 +76,13 @@ func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *
 
 		for peerID := range pm.Peers {
 			if peerID == client.UserID {
-				continue // skip self
+				continue
 			}
 			err := pm.CreateAndSendOffer(peerID, client)
 			if err != nil {
 				log.Printf("Error sending offer to peer %d: %v", peerID, err)
 			}
 		}
-
-		// client.Close() // optional disconnect from signaling
-
 	}
 }
 
@@ -96,10 +96,9 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *clienthandle.Cl
 	if err != nil {
 		return fmt.Errorf("create data channel: %w", err)
 	}
+
 	dc.OnOpen(func() {
 		fmt.Println("DataChannel opened")
-
-		// Send a message every few seconds
 		go func() {
 			for {
 				time.Sleep(2 * time.Second)
@@ -115,19 +114,53 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *clienthandle.Cl
 		log.Printf("[DATA] From %d: %s", peerID, string(msg.Data))
 	})
 
+	peer := &Peer{
+		ID:          peerID,
+		Connection:  pc,
+		DataChannel: dc,
+	}
+	pm.Mutex.Lock()
+	pm.Peers[peerID] = peer
+	pm.Mutex.Unlock()
+
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
-		log.Printf("[SIGNALING] Sending ICE candidate to %d", peerID)
-		err := client.Send(clienthandle.Message{
-			Type:      clienthandle.MessageTypeICECandidate,
-			Sender:    client.UserID,
-			Target:    peerID,
-			Candidate: c.ToJSON().Candidate,
-		})
-		if err != nil {
-			log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", peerID, err)
+
+		peer.mutex.Lock()
+		defer peer.mutex.Unlock()
+
+		candidateInit := c.ToJSON()
+		if peer.remoteDescriptionSet {
+			log.Printf("[SIGNALING] Sending ICE candidate immediately to %d", peerID)
+			err := client.Send(clienthandle.Message{
+				Type:      clienthandle.MessageTypeICECandidate,
+				Sender:    client.UserID,
+				Target:    peerID,
+				Candidate: candidateInit.Candidate,
+			})
+			if err != nil {
+				log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", peerID, err)
+			}
+		} else {
+			log.Printf("[SIGNALING] Buffering ICE candidate for %d", peerID)
+			peer.bufferedICECandidates = append(peer.bufferedICECandidates, candidateInit)
+		}
+	})
+
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		log.Printf("Connection state with %d has changed: %s", peerID, state)
+
+		if state == webrtc.PeerConnectionStateConnected {
+			fmt.Println("WebRTC P2P connection established!")
+		}
+
+		if state == webrtc.PeerConnectionStateFailed ||
+			state == webrtc.PeerConnectionStateClosed ||
+			state == webrtc.PeerConnectionStateDisconnected {
+			log.Printf("[PEER] Connection to %d is %s. Cleaning up.", peerID, state)
+			pm.RemovePeer(peerID)
 		}
 	})
 
@@ -140,22 +173,6 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *clienthandle.Cl
 	}
 	log.Printf("[SIGNALING] Sending offer to %d", peerID)
 
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("Connection state with %d has changed: %s", peerID, state)
-
-		if state == webrtc.PeerConnectionStateConnected {
-			fmt.Println("WebRTC P2P connection established!")
-		}
-	})
-
-	pm.Mutex.Lock()
-	pm.Peers[peerID] = &Peer{
-		ID:          peerID,
-		Connection:  pc,
-		DataChannel: dc,
-	}
-	pm.Mutex.Unlock()
-
 	return client.Send(clienthandle.Message{
 		Type:   clienthandle.MessageTypeOffer,
 		Target: peerID,
@@ -166,6 +183,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *clienthandle.Cl
 
 func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandle.Client) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
+
 	if err != nil {
 		return err
 	}
@@ -177,42 +195,67 @@ func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandl
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 			log.Printf("[DATA] Received message: %s", string(msg.Data))
 		})
-
-		pm.Mutex.Lock()
-		if peer, ok := pm.Peers[msg.Sender]; ok {
-			peer.DataChannel = dc
-		} else {
-			pm.Peers[msg.Sender] = &Peer{
-				ID:          msg.Sender,
-				Connection:  pc,
-				DataChannel: dc,
-			}
-		}
-		pm.Mutex.Unlock()
 	})
+
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		log.Printf("Connection state with %d has changed: %s", msg.Sender, state)
+
+		if state == webrtc.PeerConnectionStateConnected {
+			fmt.Println("WebRTC P2P connection established (incoming offer)!")
+		}
+
+		if state == webrtc.PeerConnectionStateFailed ||
+			state == webrtc.PeerConnectionStateClosed ||
+			state == webrtc.PeerConnectionStateDisconnected {
+			log.Printf("[PEER] Connection to %d is %s. Cleaning up.", msg.Sender, state)
+			pm.RemovePeer(msg.Sender)
+		}
+	})
+
+	peer := &Peer{
+		ID:          msg.Sender,
+		Connection:  pc,
+		DataChannel: nil,
+	}
+	pm.Mutex.Lock()
+	pm.Peers[msg.Sender] = peer
+	pm.Mutex.Unlock()
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
-		log.Printf("[SIGNALING] Sending ICE candidate to %d", msg.Sender)
-		err := client.Send(clienthandle.Message{
-			Type:      clienthandle.MessageTypeICECandidate,
-			Sender:    client.UserID,
-			Target:    msg.Sender,
-			Candidate: c.ToJSON().Candidate,
-		})
-		if err != nil {
-			log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", msg.Sender, err)
+
+		peer.mutex.Lock()
+		defer peer.mutex.Unlock()
+
+		candidateInit := c.ToJSON()
+		if peer.remoteDescriptionSet {
+			log.Printf("[SIGNALING] Sending ICE candidate immediately to %d", msg.Sender)
+			err := client.Send(clienthandle.Message{
+				Type:      clienthandle.MessageTypeICECandidate,
+				Sender:    client.UserID,
+				Target:    msg.Sender,
+				Candidate: candidateInit.Candidate,
+			})
+			if err != nil {
+				log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", msg.Sender, err)
+			}
+		} else {
+			log.Printf("[SIGNALING] Buffering ICE candidate for %d", msg.Sender)
+			peer.bufferedICECandidates = append(peer.bufferedICECandidates, candidateInit)
 		}
 	})
 
-	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
+	err = pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  msg.SDP,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
+
+	peer.OnRemoteDescriptionSet(client)
 
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
@@ -221,14 +264,6 @@ func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandl
 	if err := pc.SetLocalDescription(answer); err != nil {
 		return err
 	}
-	log.Printf("[SIGNALING] Sending answer to %d", msg.Sender)
-
-	pm.Mutex.Lock()
-	pm.Peers[msg.Sender] = &Peer{
-		ID:         msg.Sender,
-		Connection: pc,
-	}
-	pm.Mutex.Unlock()
 
 	return client.Send(clienthandle.Message{
 		Type:   clienthandle.MessageTypeAnswer,
@@ -238,44 +273,81 @@ func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandl
 	})
 }
 
-func (pm *PeerManager) HandleAnswer(msg clienthandle.Message) error {
+func (pm *PeerManager) HandleAnswer(msg clienthandle.Message, client *clienthandle.Client) error {
 	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
-
 	peer, exists := pm.Peers[msg.Sender]
+	pm.Mutex.Unlock()
+
 	if !exists {
 		return fmt.Errorf("peer %d not found", msg.Sender)
 	}
 
 	log.Printf("[SIGNALING] Setting remote description for answer from %d", msg.Sender)
-	return peer.Connection.SetRemoteDescription(webrtc.SessionDescription{
+
+	err := peer.Connection.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeAnswer,
 		SDP:  msg.SDP,
 	})
+	if err != nil {
+		return err
+	}
+
+	peer.OnRemoteDescriptionSet(client)
+
+	return nil
 }
+
 func (pm *PeerManager) HandleICECandidate(msg clienthandle.Message) error {
 	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
-
 	peer, exists := pm.Peers[msg.Sender]
+	pm.Mutex.Unlock()
+
 	if !exists {
 		return fmt.Errorf("peer %d not found", msg.Sender)
 	}
 
 	log.Printf("[ICE] Handling ICE candidate from peer %d", msg.Sender)
-	err := peer.Connection.AddICECandidate(webrtc.ICECandidateInit{
+	return peer.Connection.AddICECandidate(webrtc.ICECandidateInit{
 		Candidate: msg.Candidate,
 	})
-	if err != nil {
-
-		log.Printf("[ICE] Failed to add ICE candidate from peer %d: %v", msg.Sender, err)
-		return err
-	}
-
-	log.Printf("[ICE] Successfully added ICE candidate from peer %d", msg.Sender)
-	return nil
 }
 
 func (pm *PeerManager) GracefulShutdown() {
 	fmt.Println("Gracefully shutting down signaling, but keeping P2P alive.")
+}
+
+// NEW: Add this method to Peer
+func (p *Peer) OnRemoteDescriptionSet(client *clienthandle.Client) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	p.remoteDescriptionSet = true
+
+	for _, candidate := range p.bufferedICECandidates {
+		err := client.Send(clienthandle.Message{
+			Type:      clienthandle.MessageTypeICECandidate,
+			Sender:    client.UserID,
+			Target:    p.ID,
+			Candidate: candidate.Candidate,
+		})
+		if err != nil {
+			log.Printf("[SIGNALING] Failed to flush buffered candidate to %d: %v", p.ID, err)
+		}
+	}
+	p.bufferedICECandidates = nil
+}
+
+func (pm *PeerManager) RemovePeer(peerID uint64) {
+	pm.Mutex.Lock()
+	defer pm.Mutex.Unlock()
+
+	if peer, ok := pm.Peers[peerID]; ok {
+		log.Printf("[PEER] Removing peer %d", peerID)
+		if peer.Connection != nil {
+			peer.Connection.Close() // make sure connection is closed
+		}
+		delete(pm.Peers, peerID)
+	} else {
+		log.Printf("[PEER] Tried to remove non-existent peer %d", peerID)
+	}
 }

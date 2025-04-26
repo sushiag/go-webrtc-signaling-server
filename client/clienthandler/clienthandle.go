@@ -163,6 +163,7 @@ func (c *Client) Start() error {
 func (c *Client) SetMessageHandler(handler func(Message)) {
 	c.onMessage = handler
 }
+
 func (c *Client) listen() {
 	for {
 		select {
@@ -190,16 +191,13 @@ func (c *Client) listen() {
 			case MessageTypeRoomCreated:
 				fmt.Printf("[CLIENT SIGNALING] \n Room created: %d\n Copy this Room ID and share it with a friend!\n\n", msg.RoomID)
 				c.RoomID = msg.RoomID
-				_ = c.Send(Message{Type: MessageTypePeerListReq})
+				c.RequestPeerList()
 				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
 
 			case MessageTypeRoomJoined:
 				log.Printf("[CLIENT] Successfully joined room: %d", msg.RoomID)
 				c.RoomID = msg.RoomID
-				_ = c.Send(Message{Type: MessageTypePeerListReq})
-				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
-
-				_ = c.Send(Message{Type: MessageTypePeerListReq})
+				c.RequestPeerList()
 				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
 
 			case MessageTypePeerJoined:
@@ -207,7 +205,6 @@ func (c *Client) listen() {
 
 			case MessageTypeStart:
 				log.Printf("[PEER TO PEER] %d Disconnecting from server", msg.Sender)
-
 			}
 
 			if c.onMessage != nil {
@@ -215,6 +212,17 @@ func (c *Client) listen() {
 			}
 		}
 	}
+}
+
+func (c *Client) RequestPeerList() {
+	err := c.Send(Message{
+		Type: MessageTypePeerListReq,
+	})
+	if err != nil {
+		log.Printf("[SIGNALING] Failed to request peer list: %v", err)
+		return
+	}
+	log.Println("[SIGNALING] Requested peer list")
 }
 
 func getEnv(key, fallback string) string {
