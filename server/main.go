@@ -6,7 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	websocket "server/wsserver"
+
+	wsserver "github.com/sushiag/go-webrtc-signaling-server/server"
 )
 
 // LoadValidApiKeys loads API keys from a file
@@ -26,7 +27,7 @@ func LoadValidApiKeys(path string) (map[string]bool, error) {
 }
 
 func main() {
-	wsManager := websocket.NewWebSocketManager()
+	wsManager := wsserver.NewWebSocketManager()
 	apiKeys, _ := LoadValidApiKeys("apikeys.txt")
 	wsManager.SetValidApiKeys(apiKeys)
 

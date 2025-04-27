@@ -1,6 +1,7 @@
 module e2e_test
 
 replace github.com/sushiag/go-webrtc-signaling-server/client => ../client
+replacereplace github.com/sushiag/go-webrtc-signaling-server/client => ../client => ../server
 
 go 1.23.5
 
