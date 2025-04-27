@@ -315,8 +315,6 @@ func (pm *PeerManager) HandleICECandidate(msg clienthandle.Message) error {
 func (pm *PeerManager) GracefulShutdown() {
 	fmt.Println("Gracefully shutting down signaling, but keeping P2P alive.")
 }
-
-// NEW: Add this method to Peer
 func (p *Peer) OnRemoteDescriptionSet(client *clienthandle.Client) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
