@@ -1,4 +1,4 @@
-module server
+module github.com/sushiag/go-webrtc-signaling-server/server
 
 go 1.23.5
 

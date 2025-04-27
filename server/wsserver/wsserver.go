@@ -185,6 +185,8 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
+			log.Printf("WebSocket read error for user %d: %v", userID, err)
+			wm.disconnectUser(userID) // Clean up connection on error
 			if ce, ok := err.(*websocket.CloseError); ok {
 				switch ce.Code {
 				case websocket.CloseNormalClosure:
@@ -395,7 +397,6 @@ func (wm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 		})
 	}
 }
-
 func (wm *WebSocketManager) flushBufferedMessages(userID uint64) {
 	wm.mtx.Lock()
 	defer wm.mtx.Unlock()
@@ -412,15 +413,9 @@ func (wm *WebSocketManager) flushBufferedMessages(userID uint64) {
 
 	var remaining []Message
 	for _, msg := range buffered {
-		if wm.AreInSameRoom(msg.RoomID, []uint64{msg.Sender, msg.Target}) {
-			if err := conn.WriteJSON(msg); err != nil {
-				log.Printf("[WS ERROR] Failed to flush %s to user %d: %v", msg.Type, userID, err)
-				remaining = append(remaining, msg) // try again later
-			} else {
-				log.Printf("[WS DEBUG] Flushed %s to user %d", msg.Type, userID)
-			}
-		} else {
-			remaining = append(remaining, msg) // keep if not in same room
+		if err := conn.WriteJSON(msg); err != nil {
+			log.Printf("[WS ERROR] Failed to flush buffered message to %d: %v", userID, err)
+			remaining = append(remaining, msg)
 		}
 	}
 
@@ -460,6 +455,46 @@ func (wm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool 
 		}
 	}
 	return true
+}
+
+func (wm *WebSocketManager) disconnectUser(userID uint64) {
+	wm.mtx.Lock()
+	defer wm.mtx.Unlock()
+
+	// Close and remove connection
+	if conn, exists := wm.Connections[userID]; exists {
+		conn.Close()
+		delete(wm.Connections, userID)
+	}
+
+	// Remove from candidateBuffer
+	delete(wm.candidateBuffer, userID)
+
+	// Remove from rooms and notify others
+	for roomID, room := range wm.Rooms {
+		if _, inRoom := room.Users[userID]; inRoom {
+			delete(room.Users, userID)
+
+			// Notify other peers in the room that this user left
+			for _, conn := range room.Users {
+				if conn != nil {
+					_ = conn.WriteJSON(Message{
+						Type:   "peer-left",
+						RoomID: roomID,
+						Sender: userID,
+					})
+				}
+			}
+
+			log.Printf("[WS] User %d removed from room %d", userID, roomID)
+
+			// If room is empty after removal, delete the room
+			if len(room.Users) == 0 {
+				delete(wm.Rooms, roomID)
+				log.Printf("[WS] Room %d deleted because it is empty", roomID)
+			}
+		}
+	}
 }
 
 // handles the disconnection gracefully
