@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	wsserver "github.com/sushiag/go-webrtc-signaling-server/server"
+	wsserver "github.com/sushiag/go-webrtc-signaling-server/server/wsserver"
 )
 
 // LoadValidApiKeys loads API keys from a file
