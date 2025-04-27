@@ -1,13 +1,18 @@
 module e2e_test
 
 replace github.com/sushiag/go-webrtc-signaling-server/client => ../client
+
 replace github.com/sushiag/go-webrtc-signaling-server/server => ../server
 
 go 1.23.5
 
-require github.com/sushiag/go-webrtc-signaling-server/client v1.1.0-20250426030520-c5f46dc5b624
+require (
+	github.com/stretchr/testify v1.10.0
+	github.com/sushiag/go-webrtc-signaling-server/client v1.1.0-20250426030520-c5f46dc5b624
+)
 
 require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
@@ -27,8 +32,10 @@ require (
 	github.com/pion/transport/v3 v3.0.7 // indirect
 	github.com/pion/turn/v4 v4.0.1 // indirect
 	github.com/pion/webrtc/v4 v4.0.15 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

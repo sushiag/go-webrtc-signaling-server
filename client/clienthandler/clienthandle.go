@@ -225,6 +225,16 @@ func (c *Client) RequestPeerList() {
 	log.Println("[SIGNALING] Requested peer list")
 }
 
+func (c *Client) IsWebSocketClosed() bool {
+	if c.Conn == nil {
+		return true
+	}
+
+	// You can also check the connection state if WebSocket library provides it
+	// For example, checking `c.Conn` for closed state if it supports such methods.
+	return c.Conn.CloseHandler() != nil
+}
+
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val

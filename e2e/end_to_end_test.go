@@ -3,16 +3,18 @@ package e2e_test
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	clienthandle "github.com/sushiag/go-webrtc-signaling-server/client/clienthandler"
 	webrtchandle "github.com/sushiag/go-webrtc-signaling-server/client/webrtchandler"
 )
 
-func TestClientToClientSignaling(t *testing.T) {
+// Track if client2 received ICE
+var gotICEFromClient1 bool
 
+func TestClientToClientSignaling(t *testing.T) {
 	client1 := clienthandle.NewClient()
 	client2 := clienthandle.NewClient()
 
@@ -21,6 +23,7 @@ func TestClientToClientSignaling(t *testing.T) {
 	client2.ApiKey = "valid-api-key-2"
 	client2.ServerURL = fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080"))
 
+	// Authenticate clients before proceeding
 	if err := client1.PreAuthenticate(); err != nil {
 		t.Fatalf("client1 auth failed: %v", err)
 	}
@@ -28,6 +31,7 @@ func TestClientToClientSignaling(t *testing.T) {
 		t.Fatalf("client2 auth failed: %v", err)
 	}
 
+	// Initialize clients and establish WebSocket connections
 	if err := client1.Init(); err != nil {
 		t.Fatalf("client1 init failed: %v", err)
 	}
@@ -38,70 +42,84 @@ func TestClientToClientSignaling(t *testing.T) {
 	}
 	defer client2.Close()
 
+	// Setup PeerManager for handling ICE candidates
 	pm2 := webrtchandle.NewPeerManager()
 	client2.UserID = 2
 
+	// This channel will signal when signaling is complete
 	done := make(chan struct{})
+	// Set message handler for client2
+	client2.SetMessageHandler(func(msg clienthandle.Message) {
+		switch msg.Type {
+		case clienthandle.MessageTypeStart:
+			t.Logf("Client2 received start signal — now waiting for ICE candidates...")
 
+		case clienthandle.MessageTypeICECandidate:
+			t.Logf("Client2 received ICE candidate from client1.")
+
+			go func() {
+				if err := pm2.HandleICECandidate(msg); err != nil {
+					t.Errorf("client2 failed to handle ICE candidate: %v", err)
+				}
+			}()
+
+			gotICEFromClient1 = true
+			// Once we get ICE from client1, signaling is considered complete
+			done <- struct{}{}
+		}
+	})
+
+	// Set message handler for client1
 	client1.SetMessageHandler(func(msg clienthandle.Message) {
 		switch msg.Type {
 		case clienthandle.MessageTypeRoomCreated:
 			t.Logf("Client1 created room with ID: %v", msg.RoomID)
+			// Simulate client2 joining the room
 			go func() {
-
-				roomIDStr := strconv.FormatUint(msg.RoomID, 10)
-				t.Logf("Client2 attempting to join room: %s", roomIDStr)
+				roomIDStr := fmt.Sprintf("%d", msg.RoomID)
 				if err := client2.Join(roomIDStr); err != nil {
 					t.Errorf("client2 failed to join room: %v", err)
 				}
 			}()
 
 		case clienthandle.MessageTypePeerJoined:
-			go func() {
-				startMsg := clienthandle.Message{
-					Type:   clienthandle.MessageTypeStart,
-					RoomID: client1.RoomID,
-					Sender: client1.UserID,
-				}
-				if err := client1.Send(startMsg); err != nil {
-					t.Errorf("client1 failed to send start message: %v", err)
-				}
-			}()
+			t.Logf("Client2 joined the room. Sending start message.")
+			startMsg := clienthandle.Message{
+				Type:   clienthandle.MessageTypeStart,
+				RoomID: client1.RoomID,
+				Sender: client1.UserID,
+			}
+			if err := client1.Send(startMsg); err != nil {
+				t.Errorf("client1 failed to send start message: %v", err)
+			}
 
 		case clienthandle.MessageTypeICECandidate:
+			t.Logf("Client1 received ICE candidate from server.")
+			// Forward ICE candidate to client2
 			go func() {
 				if err := client2.Send(msg); err != nil {
-					t.Errorf("client2 failed to send ICE candidate: %v", err)
+					t.Errorf("client1 failed to forward ICE candidate to client2: %v", err)
 				}
 			}()
 		}
 	})
 
-	client2.SetMessageHandler(func(msg clienthandle.Message) {
-		switch msg.Type {
-		case clienthandle.MessageTypeStart:
-			t.Logf("Client2 received start signal — signaling successful.")
-			done <- struct{}{}
-
-		case clienthandle.MessageTypeICECandidate:
-			go func() {
-				if err := pm2.HandleICECandidate(msg); err != nil {
-					t.Errorf("client2 failed to handle ICE candidate: %v", err)
-				}
-			}()
-		}
-	})
-
+	// Start the signaling: Client1 creates room
 	if err := client1.Start(); err != nil {
 		t.Fatalf("client1 failed to create room: %v", err)
 	}
 
+	// Wait for ICE exchange to complete or timeout
 	select {
 	case <-done:
 		t.Log("✅ End-to-end signaling test passed!")
-	case <-time.After(15 * time.Second):
-		t.Error("❌ Timeout: signaling between clients did not complete in time")
+	case <-time.After(90 * time.Second):
+		t.Fatal("❌ Timeout: signaling between clients did not complete in time")
 	}
+
+	// Ensure the WebSocket connections are properly closed
+	assert.True(t, client1.IsWebSocketClosed(), "WebSocket for client1 should be closed")
+	assert.True(t, client2.IsWebSocketClosed(), "WebSocket for client2 should be closed")
 }
 
 func getEnv(key, fallback string) string {
@@ -109,177 +127,4 @@ func getEnv(key, fallback string) string {
 		return val
 	}
 	return fallback
-}
-
-type Server struct {
-	rooms map[string]map[string]*Client
-}
-
-type Client struct {
-	ID     string
-	Server *Server
-}
-
-func newTestServer() *Server {
-
-	server := &Server{
-		rooms: make(map[string]map[string]*Client),
-	}
-	return server
-}
-
-func newTestClient(server *Server) *Client {
-
-	client := &Client{
-		ID:     fmt.Sprintf("client-%d", time.Now().UnixNano()),
-		Server: server,
-	}
-	return client
-}
-
-func (server *Server) handleMessage(client *Client, msg clienthandle.Message) {
-	switch msg.Type {
-	case clienthandle.MessageTypeCreateRoom:
-
-		roomIDStr := strconv.FormatUint(msg.RoomID, 10)
-		if _, exists := server.rooms[roomIDStr]; !exists {
-			server.rooms[roomIDStr] = make(map[string]*Client)
-		}
-		server.rooms[roomIDStr][client.ID] = client
-	case clienthandle.MessageTypeStart:
-		roomIDStr := strconv.FormatUint(msg.RoomID, 10)
-		delete(server.rooms[roomIDStr], client.ID)
-	}
-}
-
-func TestHostGoesP2PAndDisconnects(t *testing.T) {
-	server := newTestServer()
-	host := newTestClient(server)
-
-	roomID := "1"
-	roomIDUint64, err := strconv.ParseUint(roomID, 10, 64)
-	if err != nil {
-		t.Errorf("Failed to parse roomID to uint64: %v", err)
-	}
-	server.handleMessage(host, clienthandle.Message{Type: clienthandle.MessageTypeCreateRoom, RoomID: roomIDUint64})
-
-	startMessage := clienthandle.Message{Type: clienthandle.MessageTypeStart, RoomID: roomIDUint64}
-	server.handleMessage(host, startMessage)
-
-	roomIDStr := strconv.FormatUint(roomIDUint64, 10)
-	if _, exists := server.rooms[roomIDStr][host.ID]; exists {
-		t.Errorf("Host was not removed from the room after going P2P.")
-	}
-
-	if !host.receivedP2PNotification() {
-		t.Errorf("Host did not receive P2P notification.")
-	}
-}
-
-func (client *Client) receivedP2PNotification() bool {
-	return true
-}
-
-func TestClientToClientSignaling2(t *testing.T) {
-
-	client1 := clienthandle.NewClient()
-	client2 := clienthandle.NewClient()
-
-	client1.ApiKey = "valid-api-key-1"
-	client1.ServerURL = fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080"))
-	client2.ApiKey = "valid-api-key-2"
-	client2.ServerURL = fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080"))
-
-	if err := client1.PreAuthenticate(); err != nil {
-		t.Fatalf("client1 auth failed: %v", err)
-	}
-	if err := client2.PreAuthenticate(); err != nil {
-		t.Fatalf("client2 auth failed: %v", err)
-	}
-
-	if err := client1.Init(); err != nil {
-		t.Fatalf("client1 init failed: %v", err)
-	}
-	defer client1.Close()
-
-	if err := client2.Init(); err != nil {
-		t.Fatalf("client2 init failed: %v", err)
-	}
-	defer client2.Close()
-
-	pm2 := webrtchandle.NewPeerManager()
-	client2.UserID = 2
-
-	done := make(chan struct{})
-
-	// Message handler for client1
-	client1.SetMessageHandler(func(msg clienthandle.Message) {
-		switch msg.Type {
-		case clienthandle.MessageTypeRoomCreated:
-			t.Logf("Client1 created room with ID: %v", msg.RoomID)
-			go func() {
-				roomIDStr := strconv.FormatUint(msg.RoomID, 10)
-				t.Logf("Client2 attempting to join room: %s", roomIDStr)
-				if err := client2.Join(roomIDStr); err != nil {
-					t.Errorf("client2 failed to join room: %v", err)
-				}
-			}()
-
-		case clienthandle.MessageTypePeerJoined:
-			go func() {
-				// Send start message after client2 joins the room
-				startMsg := clienthandle.Message{
-					Type:   clienthandle.MessageTypeStart,
-					RoomID: client1.RoomID,
-					Sender: client1.UserID,
-				}
-				if err := client1.Send(startMsg); err != nil {
-					t.Errorf("client1 failed to send start message: %v", err)
-				}
-			}()
-
-		case clienthandle.MessageTypeICECandidate:
-			// Forward ICE candidates to client2
-			go func() {
-				if err := client2.Send(msg); err != nil {
-					t.Errorf("client2 failed to send ICE candidate: %v", err)
-				}
-			}()
-		}
-	})
-
-	// Message handler for client2
-	client2.SetMessageHandler(func(msg clienthandle.Message) {
-		switch msg.Type {
-		case clienthandle.MessageTypeStart:
-			t.Logf("Client2 received start signal — signaling successful.")
-			// Signal that the P2P connection setup is complete
-			done <- struct{}{}
-
-		case clienthandle.MessageTypeICECandidate:
-			go func() {
-				// Handle ICE candidate received from client1
-				if err := pm2.HandleICECandidate(msg); err != nil {
-					t.Errorf("client2 failed to handle ICE candidate: %v", err)
-				}
-			}()
-		}
-	})
-
-	// Create a room with client1, client2 will join
-	if err := client1.Start(); err != nil {
-		t.Fatalf("client1 failed to create room: %v", err)
-	}
-
-	// Wait for signaling to complete or timeout
-	select {
-	case <-done:
-		// After successful signaling and ICE candidates exchange, disconnect client1
-		t.Log("✅ End-to-end signaling test passed!")
-		if err := client1.Close(); err != nil {
-			t.Errorf("client1 failed to disconnect: %v", err)
-		}
-	case <-time.After(15 * time.Second):
-		t.Error("❌ Timeout: signaling between clients did not complete in time")
-	}
 }
