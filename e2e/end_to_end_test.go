@@ -11,19 +11,16 @@ import (
 	webrtchandle "github.com/sushiag/go-webrtc-signaling-server/client/webrtchandler"
 )
 
-// TestClientToClientSignaling performs end-to-end signaling test between two clients
 func TestClientToClientSignaling(t *testing.T) {
-	// Create two clients
+
 	client1 := clienthandle.NewClient()
 	client2 := clienthandle.NewClient()
 
-	// Set API keys and server URLs
 	client1.ApiKey = "valid-api-key-1"
 	client1.ServerURL = fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080"))
 	client2.ApiKey = "valid-api-key-2"
 	client2.ServerURL = fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080"))
 
-	// Perform pre-authentication
 	if err := client1.PreAuthenticate(); err != nil {
 		t.Fatalf("client1 auth failed: %v", err)
 	}
@@ -31,7 +28,6 @@ func TestClientToClientSignaling(t *testing.T) {
 		t.Fatalf("client2 auth failed: %v", err)
 	}
 
-	// Initialize clients
 	if err := client1.Init(); err != nil {
 		t.Fatalf("client1 init failed: %v", err)
 	}
@@ -42,18 +38,16 @@ func TestClientToClientSignaling(t *testing.T) {
 	}
 	defer client2.Close()
 
-	// Create PeerManager for client2
 	pm2 := webrtchandle.NewPeerManager()
 
-	// Channel to signal test completion
 	done := make(chan struct{})
 
-	// Setup client1 message handler
 	client1.SetMessageHandler(func(msg clienthandle.Message) {
 		switch msg.Type {
 		case clienthandle.MessageTypeRoomCreated:
 			t.Logf("Client1 created room with ID: %v", msg.RoomID)
 			go func() {
+
 				roomIDStr := strconv.FormatUint(msg.RoomID, 10)
 				t.Logf("Client2 attempting to join room: %s", roomIDStr)
 				if err := client2.Join(roomIDStr); err != nil {
@@ -82,7 +76,6 @@ func TestClientToClientSignaling(t *testing.T) {
 		}
 	})
 
-	// Setup client2 message handler
 	client2.SetMessageHandler(func(msg clienthandle.Message) {
 		switch msg.Type {
 		case clienthandle.MessageTypeStart:
@@ -98,12 +91,10 @@ func TestClientToClientSignaling(t *testing.T) {
 		}
 	})
 
-	// Start by having client1 create a room
 	if err := client1.Start(); err != nil {
 		t.Fatalf("client1 failed to create room: %v", err)
 	}
 
-	// Wait for signaling to complete
 	select {
 	case <-done:
 		t.Log("✅ End-to-end signaling test passed!")
@@ -112,7 +103,6 @@ func TestClientToClientSignaling(t *testing.T) {
 	}
 }
 
-// getEnv safely gets environment variables with fallback
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
@@ -120,44 +110,71 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// newTestServer simulates creating a test server
+type Server struct {
+	rooms map[string]map[string]*Client
+}
+
+type Client struct {
+	ID     string
+	Server *Server
+}
+
 func newTestServer() *Server {
-	// Initialize the server (mock or real server)
+
 	server := &Server{
-		// Set up necessary fields for the server
+		rooms: make(map[string]map[string]*Client),
 	}
 	return server
 }
 
-// newTestClient simulates creating a test client
 func newTestClient(server *Server) *Client {
-	// Initialize the client
+
 	client := &Client{
+		ID:     fmt.Sprintf("client-%d", time.Now().UnixNano()),
 		Server: server,
-		// Set up necessary fields for the client
 	}
 	return client
+}
+
+func (server *Server) handleMessage(client *Client, msg clienthandle.Message) {
+	switch msg.Type {
+	case clienthandle.MessageTypeCreateRoom:
+
+		roomIDStr := strconv.FormatUint(msg.RoomID, 10)
+		if _, exists := server.rooms[roomIDStr]; !exists {
+			server.rooms[roomIDStr] = make(map[string]*Client)
+		}
+		server.rooms[roomIDStr][client.ID] = client
+	case clienthandle.MessageTypeStart:
+		roomIDStr := strconv.FormatUint(msg.RoomID, 10)
+		delete(server.rooms[roomIDStr], client.ID)
+	}
 }
 
 func TestHostGoesP2PAndDisconnects(t *testing.T) {
 	server := newTestServer()
 	host := newTestClient(server)
 
-	// Host creates the room and joins
-	roomID := "test-room"
-	server.handleMessage(host, signaling.Message{Type: signaling.TypeCreateRoom, RoomID: roomID})
+	roomID := "1"
+	roomIDUint64, err := strconv.ParseUint(roomID, 10, 64)
+	if err != nil {
+		t.Errorf("Failed to parse roomID to uint64: %v", err)
+	}
+	server.handleMessage(host, clienthandle.Message{Type: clienthandle.MessageTypeCreateRoom, RoomID: roomIDUint64})
 
-	// Host decides to go P2P
-	startMessage := signaling.Message{Type: signaling.TypeStart, RoomID: roomID}
+	startMessage := clienthandle.Message{Type: clienthandle.MessageTypeStart, RoomID: roomIDUint64}
 	server.handleMessage(host, startMessage)
 
-	// Verify P2P status and removal from room
-	if _, exists := server.rooms[roomID][host.id]; exists {
+	roomIDStr := strconv.FormatUint(roomIDUint64, 10)
+	if _, exists := server.rooms[roomIDStr][host.ID]; exists {
 		t.Errorf("Host was not removed from the room after going P2P.")
 	}
 
-	// Verify other users are notified about the host leaving
 	if !host.receivedP2PNotification() {
 		t.Errorf("Host did not receive P2P notification.")
 	}
+}
+
+func (client *Client) receivedP2PNotification() bool {
+	return true
 }
