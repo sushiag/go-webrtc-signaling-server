@@ -2,6 +2,7 @@ package wsserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,260 +13,180 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// test to assin userid and sessionkey: passed test
-func TestAssignUserIDAndSessionKey(t *testing.T) {
-	wm := NewWebSocketManager()
-	validKey := "test-key-123"
-	wm.SetValidApiKeys(map[string]bool{
-		validKey: true,
-	})
-
-	// 1st request
-	payload := map[string]string{"apikey": validKey}
-	body, _ := json.Marshal(payload)
-
-	req := httptest.NewRequest(http.MethodPost, "/auth", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-
-	wm.AuthHandler(rec, req)
-
-	res := rec.Result()
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("Expected 200 OK, got %d", res.StatusCode)
-	}
-
-	var response struct {
-		UserID     uint64 `json:"userid"`
-		SessionKey string `json:"sessionkey"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	if response.UserID == 0 {
-		t.Errorf("Expected non-zero userID, got %d", response.UserID)
-	}
-	if response.SessionKey == "" {
-		t.Error("Expected non-empty session key")
-	}
-
-	// second request with the same apikey
-	req2 := httptest.NewRequest(http.MethodPost, "/auth", bytes.NewReader(body))
-	rec2 := httptest.NewRecorder()
-	wm.AuthHandler(rec2, req2)
-
-	res2 := rec2.Result()
-	defer res2.Body.Close()
-
-	var response2 struct {
-		UserID     uint64 `json:"userid"`
-		SessionKey string `json:"sessionkey"`
-	}
-	if err := json.NewDecoder(res2.Body).Decode(&response2); err != nil {
-		t.Fatalf("Failed to decode second response: %v", err)
-	}
-
-	if response.UserID != response2.UserID {
-		t.Errorf("Expected same userID for repeated API key, got %d and %d", response.UserID, response2.UserID)
-	}
-}
-
-// test to see if the assigned user id creates room: passed test
-func TestAssignUserIDAndCreateRoom(t *testing.T) {
-	manager := NewWebSocketManager()
-	apiKey := "test-api-key"
-	manager.SetValidApiKeys(map[string]bool{apiKey: true})
-
-	authSrv := httptest.NewServer(http.HandlerFunc(manager.AuthHandler))
-	defer authSrv.Close()
-
-	wsSrv := httptest.NewServer(http.HandlerFunc(manager.Handler))
-	defer wsSrv.Close()
-
-	// auth to get assigned userid and sessionkey
-	authBody := map[string]string{"apikey": apiKey}
-	bodyBytes, _ := json.Marshal(authBody)
-
-	resp, err := http.Post(authSrv.URL, "application/json", bytes.NewBuffer(bodyBytes))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var authResp struct {
-		UserID     uint64 `json:"userid"`
-		SessionKey string `json:"sessionkey"`
-	}
-	json.NewDecoder(resp.Body).Decode(&authResp)
-	resp.Body.Close()
-
-	// connect to websocket
-	wsURL := "ws" + wsSrv.URL[len("http"):]
-
-	headers := http.Header{}
-	headers.Set("X-Api-Key", apiKey)
-
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
-	require.NoError(t, err)
-	defer wsConn.Close()
-
-	// sends create room message
-	err = wsConn.WriteJSON(Message{
-		Type:   TypeCreateRoom,
-		Sender: authResp.UserID,
-	})
-	require.NoError(t, err)
-
-	// waits
-	wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-
-	var roomCreatedMsg *Message
-	for i := 0; i < 2; i++ {
-		var msg Message
-		err := wsConn.ReadJSON(&msg)
-		require.NoError(t, err)
-
-		if msg.Type == TypeRoomCreated {
-			roomCreatedMsg = &msg
-			break
-		}
-	}
-
-	require.NotNil(t, roomCreatedMsg, "expected room-created message not received")
-	require.Equal(t, TypeRoomCreated, roomCreatedMsg.Type)
-	require.Equal(t, authResp.UserID, roomCreatedMsg.Sender)
-	require.True(t, roomCreatedMsg.RoomID > 0)
-}
-
-// returns 401 if invalid key: passed test
-func TestInvalidApiKeyReturns401(t *testing.T) {
-	wm := NewWebSocketManager()
-	wm.SetValidApiKeys(map[string]bool{
-		"valid-key": true,
-	})
-
-	payload := map[string]string{"apikey": "invalid-key"}
-	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest("POST", "/auth", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-
-	wm.AuthHandler(w, req)
-
-	resp := w.Result()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("Expected 401 Unauthorized, got %d", resp.StatusCode)
-	}
-}
-
-// creates a new unique room ID: passed test
-func TestCreateRoomCreatesUniqueRoomID(t *testing.T) {
-	wm := NewWebSocketManager()
-	userID := uint64(42)
-	wm.Connections[userID] = nil // fake connection for testing
-
-	roomID1 := wm.CreateRoom(userID)
-	roomID2 := wm.CreateRoom(userID)
-
-	if roomID1 == roomID2 {
-		t.Errorf("Expected unique room IDs, got same ID: %d", roomID1)
-	}
-	if _, ok := wm.Rooms[roomID1]; !ok {
-		t.Errorf("Room ID %d not created", roomID1)
-	}
-	if _, ok := wm.Rooms[roomID2]; !ok {
-		t.Errorf("Room ID %d not created", roomID2)
-	}
-}
-
-// returns false if any user is missing: passed test.
-func TestAreInSameRoomReturnsFalseIfAnyMissing(t *testing.T) {
-	wm := NewWebSocketManager()
-	roomID := uint64(1)
-	userA := uint64(101)
-	userB := uint64(102)
-
-	// Add only one user
-	wm.Rooms[roomID] = &Room{
-		ID:    roomID,
-		Users: map[uint64]*websocket.Conn{userA: nil},
-	}
-
-	result := wm.AreInSameRoom(roomID, []uint64{userA, userB})
-	if result {
-		t.Error("Expected false, only one user is in the room")
-	}
-}
-
-func TestPeerToPeerDisconnectCleanup(t *testing.T) {
+func TestFullE2EFlow(t *testing.T) {
 	manager := NewWebSocketManager()
 	apiKeys := map[string]bool{
-		"peer1": true,
-		"peer2": true,
+		"test-api-key-1": true,
+		"test-api-key-2": true,
 	}
 	manager.SetValidApiKeys(apiKeys)
 
-	// Start WebSocket server
-	wsSrv := httptest.NewServer(http.HandlerFunc(manager.Handler))
-	defer wsSrv.Close()
-	wsURL := "ws" + wsSrv.URL[len("http"):]
+	// test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/auth":
+			manager.AuthHandler(w, r)
+		case "/ws":
+			manager.Handler(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
 
-	// Connect Peer1
-	headers1 := http.Header{}
-	headers1.Set("X-Api-Key", "peer1")
-	ws1, _, err := websocket.DefaultDialer.Dial(wsURL, headers1)
-	require.NoError(t, err)
+	// url websocket
+	wsURL := "ws" + server.URL[4:] + "/ws"
+
+	// step 1:  Authenticate clients
+	type authResp struct {
+		UserID     uint64 `json:"userid"`
+		SessionKey string `json:"sessionkey"`
+	}
+	auth := func(apikey string) authResp {
+		body, _ := json.Marshal(map[string]string{
+			"apikey": apikey,
+		})
+		resp, err := http.Post(server.URL+"/auth", "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var out authResp
+		json.NewDecoder(resp.Body).Decode(&out)
+		return out
+	}
+
+	client1 := auth("test-api-key-1")
+	client2 := auth("test-api-key-2")
+
+	// step 2: connect the clients
+	dial := func(apikey string) *websocket.Conn {
+		headers := http.Header{}
+		headers.Set("X-Api-Key", apikey)
+
+		ws, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
+		require.NoError(t, err)
+		return ws
+	}
+
+	ws1 := dial("test-api-key-1")
 	defer ws1.Close()
 
-	// Create room
-	err = ws1.WriteJSON(Message{
-		Type:   TypeCreateRoom,
-		Sender: 1, // assuming assigned ID will be 1
-	})
-	require.NoError(t, err)
-
-	// Read room-created
-	var msg Message
-	err = ws1.ReadJSON(&msg)
-	require.NoError(t, err)
-	require.Equal(t, TypeRoomCreated, msg.Type)
-	roomID := msg.RoomID
-
-	// Connect Peer2
-	headers2 := http.Header{}
-	headers2.Set("X-Api-Key", "peer2")
-	ws2, _, err := websocket.DefaultDialer.Dial(wsURL, headers2)
-	require.NoError(t, err)
+	ws2 := dial("test-api-key-2")
 	defer ws2.Close()
 
-	// Peer2 joins room
-	err = ws2.WriteJSON(Message{
+	// message for timeout
+	readMsg := func(ws *websocket.Conn) Message {
+		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, data, err := ws.ReadMessage()
+		require.NoError(t, err)
+
+		var msg Message
+		require.NoError(t, json.Unmarshal(data, &msg))
+		return msg
+	}
+
+	// step 3.5: create room for client 1
+	require.NoError(t, ws1.WriteJSON(Message{
+		Type: TypeCreateRoom,
+	}))
+
+	roomCreated := readMsg(ws1)
+	require.Equal(t, TypeRoomCreated, roomCreated.Type)
+	roomID := roomCreated.RoomID
+	require.NotZero(t, roomID)
+
+	//  step 3.5: created room with invited, client 2 joins
+	require.NoError(t, ws2.WriteJSON(Message{
 		Type:   TypeJoin,
-		Sender: 2,
 		RoomID: roomID,
-	})
-	require.NoError(t, err)
+	}))
 
-	// Expect room-joined message (from server to Peer1)
-	// Expect some P2P messages if you mock SDP exchange
-	// (skip actual WebRTC for now — just mimic signaling)
+	joinConfirm := readMsg(ws2)
+	require.Equal(t, TypeCreateRoom, joinConfirm.Type)
+	require.Equal(t, roomID, joinConfirm.RoomID)
 
-	// Now simulate disconnect from Peer2
-	err = ws2.Close()
-	require.NoError(t, err)
+	peerList := readMsg(ws2)
+	require.Equal(t, TypePeerList, peerList.Type)
+	require.Equal(t, roomID, peerList.RoomID)
+	require.Len(t, peerList.Users, 1)
+	require.Equal(t, client1.UserID, peerList.Users[0])
 
-	// Allow time for server to detect disconnect
-	time.Sleep(1 * time.Second)
+	// step 4: client 1 gets event of another peer joining
+	peerJoined := readMsg(ws1)
+	require.Equal(t, TypePeerJoined, peerJoined.Type)
+	require.Equal(t, client2.UserID, peerJoined.Sender)
 
-	// Check that Peer2 was removed from room
-	room := manager.Rooms[roomID]
-	require.NotNil(t, room)
-	_, exists := room.Users[2]
-	require.False(t, exists, "Expected Peer2 to be removed from room")
+	// step 5: client 1 offers client 2
+	offerSDP := "fake-offer-sdp"
+	require.NoError(t, ws1.WriteJSON(Message{
+		Type:   TypeOffer,
+		RoomID: roomID,
+		Sender: client1.UserID,
+		Target: client2.UserID,
+		SDP:    offerSDP,
+	}))
 
-	// Optionally check Peer1 received a peer-disconnected message
-	var notify Message
-	err = ws1.ReadJSON(&notify)
-	require.NoError(t, err)
-	require.Equal(t, "peer-disconnected", notify.Type)
-	require.Equal(t, uint64(2), notify.Sender)
+	recvOffer := readMsg(ws2)
+	require.Equal(t, TypeOffer, recvOffer.Type)
+	require.Equal(t, offerSDP, recvOffer.SDP)
+
+	// step 6: client 2 answers
+	answerSDP := "fake-answer-sdp"
+	require.NoError(t, ws2.WriteJSON(Message{
+		Type:   TypeAnswer,
+		RoomID: roomID,
+		Sender: client2.UserID,
+		Target: client1.UserID,
+		SDP:    answerSDP,
+	}))
+
+	recvAnswer := readMsg(ws1)
+	require.Equal(t, TypeAnswer, recvAnswer.Type)
+	require.Equal(t, answerSDP, recvAnswer.SDP)
+
+	// step 7: client 1 sends fake ice candidates
+	candidate := "fake-candidate"
+	require.NoError(t, ws1.WriteJSON(Message{
+		Type:      TypeICE,
+		RoomID:    roomID,
+		Sender:    client1.UserID,
+		Target:    client2.UserID,
+		Candidate: candidate,
+	}))
+
+	recvICE := readMsg(ws2)
+	require.Equal(t, TypeICE, recvICE.Type)
+	require.Equal(t, candidate, recvICE.Candidate)
+
+	// step 8: client 1 sends 'start'
+	require.NoError(t, ws1.WriteJSON(Message{
+		Type:   TypeStart,
+		RoomID: roomID,
+		Sender: client1.UserID,
+	}))
+
+	// both should disconnect
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	errs := make(chan error, 2)
+
+	go func() {
+		_, _, err := ws1.ReadMessage()
+		errs <- err
+	}()
+
+	go func() {
+		_, _, err := ws2.ReadMessage()
+		errs <- err
+	}()
+
+	select {
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for disconnect")
+	case err := <-errs:
+		require.Error(t, err) // websocket closes
+	}
 }

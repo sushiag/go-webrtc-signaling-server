@@ -1,4 +1,4 @@
-package e2e_test
+package e2e
 
 import (
 	"fmt"
@@ -48,12 +48,10 @@ func TestClientToClientSignaling(t *testing.T) {
 
 	// This channel will signal when signaling is complete
 	done := make(chan struct{})
+
 	// Set message handler for client2
 	client2.SetMessageHandler(func(msg clienthandle.Message) {
 		switch msg.Type {
-		case clienthandle.MessageTypeStart:
-			t.Logf("Client2 received start signal — now waiting for ICE candidates...")
-
 		case clienthandle.MessageTypeICECandidate:
 			t.Logf("Client2 received ICE candidate from client1.")
 
@@ -64,7 +62,6 @@ func TestClientToClientSignaling(t *testing.T) {
 			}()
 
 			gotICEFromClient1 = true
-			// Once we get ICE from client1, signaling is considered complete
 			done <- struct{}{}
 		}
 	})
@@ -83,14 +80,11 @@ func TestClientToClientSignaling(t *testing.T) {
 			}()
 
 		case clienthandle.MessageTypePeerJoined:
-			t.Logf("Client2 joined the room. Sending start message.")
-			startMsg := clienthandle.Message{
-				Type:   clienthandle.MessageTypeStart,
-				RoomID: client1.RoomID,
-				Sender: client1.UserID,
-			}
-			if err := client1.Send(startMsg); err != nil {
-				t.Errorf("client1 failed to send start message: %v", err)
+			t.Logf("Client2 joined the room. Ready for ICE exchange.")
+
+			// Trigger ICE negotiation (client1 sends offer to client2)
+			if err := webrtchandle.CreateAndSendOffer(client2.UserID, client1); err != nil {
+				t.Errorf("client1 failed to send offer: %v", err)
 			}
 
 		case clienthandle.MessageTypeICECandidate:

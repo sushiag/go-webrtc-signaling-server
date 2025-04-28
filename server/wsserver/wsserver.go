@@ -2,7 +2,6 @@ package wsserver
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -135,15 +134,24 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	apiKey := r.Header.Get("X-Api-Key")
 
 	wm.mtx.Lock()
-	userID, exists := wm.apiKeyToUserID[apiKey]
-	if !exists {
-		userID = wm.nextUserID
-		wm.apiKeyToUserID[apiKey] = userID
-		wm.nextUserID++
-	} else if oldConn, ok := wm.Connections[userID]; ok {
-		oldConn.Close()
-		delete(wm.Connections, userID)
+
+	// Check if there is an old userID for this API key
+	oldUserID, exists := wm.apiKeyToUserID[apiKey]
+	if exists {
+		// If so, disconnect the old connection
+		if oldConn, ok := wm.Connections[oldUserID]; ok {
+			log.Printf("[WS] Disconnecting old userID %d for API key %s", oldUserID, apiKey)
+			oldConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "New connection established"))
+			oldConn.Close()
+			delete(wm.Connections, oldUserID)
+		}
 	}
+
+	// Always generate a NEW userID for the new connection
+	newUserID := wm.nextUserID
+	wm.apiKeyToUserID[apiKey] = newUserID
+	wm.nextUserID++
+
 	wm.mtx.Unlock()
 
 	conn, err := wm.upgrader.Upgrade(w, r, nil)
@@ -153,31 +161,35 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wm.mtx.Lock()
-	wm.Connections[userID] = conn
+	wm.Connections[newUserID] = conn
 	wm.mtx.Unlock()
 
-	log.Printf("[WS] User %d connected", userID)
+	// Flush any buffered messages (optional)
+	wm.flushBufferedMessages(newUserID)
+
+	log.Printf("[WS] User %d connected with API key %s", newUserID, apiKey)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		wm.readMessages(userID, conn)
+		wm.readMessages(newUserID, conn)
 	}()
 
 	go func() {
 		defer wg.Done()
-		wm.sendPings(userID, conn)
+		wm.sendPings(newUserID, conn)
 	}()
 
 	wg.Wait()
 
 	wm.mtx.Lock()
-	delete(wm.Connections, userID)
+	delete(wm.Connections, newUserID)
 	wm.mtx.Unlock()
 	conn.Close()
-	log.Printf("[WS] User %d disconnected", userID)
+
+	log.Printf("[WS] User %d disconnected", newUserID)
 }
 
 // sends messages to the websocket
@@ -216,7 +228,6 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 			roomID := wm.nextRoomID
 			wm.nextRoomID++
 			wm.AddUserToRoom(roomID, userID)
-
 			resp := Message{
 				Type:   TypeRoomCreated,
 				RoomID: roomID,
@@ -291,7 +302,6 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 				}
 			}
 
-			// Clean up the room
 			wm.mtx.Lock()
 			delete(wm.Rooms, msg.RoomID)
 			wm.mtx.Unlock()
@@ -370,7 +380,6 @@ func (wm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 	}
 	room.Users[userID] = wm.Connections[userID]
 
-	// notify peers
 	for uid, conn := range room.Users {
 		if uid != userID {
 			conn.WriteJSON(Message{
@@ -380,23 +389,8 @@ func (wm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 			})
 		}
 	}
-	go wm.flushBufferedMessages(userID)
-
-	// send peer list to the newly joined user
-	if conn, ok := wm.Connections[userID]; ok {
-		var peerList []uint64
-		for uid := range room.Users {
-			if uid != userID {
-				peerList = append(peerList, uid)
-			}
-		}
-		conn.WriteJSON(Message{
-			Type:    TypePeerList,
-			RoomID:  roomID,
-			Content: encodePeers(peerList),
-		})
-	}
 }
+
 func (wm *WebSocketManager) flushBufferedMessages(userID uint64) {
 	wm.mtx.Lock()
 	defer wm.mtx.Unlock()
@@ -467,15 +461,15 @@ func (wm *WebSocketManager) disconnectUser(userID uint64) {
 		delete(wm.Connections, userID)
 	}
 
-	// Remove from candidateBuffer
+	// remove from candidateBuffer
 	delete(wm.candidateBuffer, userID)
 
-	// Remove from rooms and notify others
+	// remove from rooms and notify others
 	for roomID, room := range wm.Rooms {
 		if _, inRoom := room.Users[userID]; inRoom {
 			delete(room.Users, userID)
 
-			// Notify other peers in the room that this user left
+			// alerts other peers in the room that this user left
 			for _, conn := range room.Users {
 				if conn != nil {
 					_ = conn.WriteJSON(Message{
@@ -488,7 +482,7 @@ func (wm *WebSocketManager) disconnectUser(userID uint64) {
 
 			log.Printf("[WS] User %d removed from room %d", userID, roomID)
 
-			// If room is empty after removal, delete the room
+			// if the room is empty after removal, delete the room
 			if len(room.Users) == 0 {
 				delete(wm.Rooms, roomID)
 				log.Printf("[WS] Room %d deleted because it is empty", roomID)
@@ -547,8 +541,4 @@ func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
 			failures = 0
 		}
 	}
-}
-
-func encodePeers(peers []uint64) string {
-	return fmt.Sprintf("%v", peers)
 }
