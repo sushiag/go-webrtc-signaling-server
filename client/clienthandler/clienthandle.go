@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
@@ -51,6 +52,8 @@ type Client struct {
 	RoomID     uint64          // current room joined, assigned to client, user
 	onMessage  func(Message)   // callback function for handling messagess
 	doneCh     chan struct{}   // chanel for the signal connection closing
+	isClosed   bool            // closing when os exit
+	SendMutex  sync.Mutex      // concurrent writting to the websocket. safe thread
 }
 
 // to load the .env file once the package/module initializes
@@ -102,7 +105,8 @@ func (c *Client) PreAuthenticate() error {
 // initializes the webscoekt connection and starts listening for message
 func (c *Client) Init() error {
 	headers := http.Header{}
-	headers.Set("X-Api-Key", c.ApiKey) // set the auth header
+	headers.Set("X-Api-Key", c.ApiKey)         // set the auth header
+	headers.Set("X-Session-Key", c.SessionKey) // <-- Add this
 
 	conn, _, err := websocket.DefaultDialer.Dial(c.ServerURL, headers)
 	if err != nil {
@@ -120,15 +124,26 @@ func (c *Client) Close() {
 	case <-c.doneCh:
 	default:
 		close(c.doneCh)
+		c.isClosed = true
+
 		if c.Conn != nil {
+			c.SendMutex.Lock()
 			_ = c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			_ = c.Conn.Close()
+			c.SendMutex.Unlock()
 		}
 		log.Println("[CLIENT SIGNALING] Connection closed")
 	}
 }
 
 func (c *Client) Send(msg Message) error {
+	if c.isClosed {
+		return fmt.Errorf("[CLIENT SIGNALING] Cannot send message, connection is closed")
+	}
+
+	c.SendMutex.Lock()
+	defer c.SendMutex.Unlock()
+
 	if msg.RoomID == 0 {
 		msg.RoomID = c.RoomID
 	}
@@ -148,15 +163,21 @@ func (c *Client) Join(roomID string) error {
 		return fmt.Errorf("[CLIENT SIGNALING] invalid room ID: %v", err)
 	}
 	c.RoomID = roomIDUint64
-	return c.Send(Message{
+	err = c.Send(Message{
 		Type:   MessageTypeJoinRoom,
 		RoomID: c.RoomID,
 	})
+	if err != nil {
+		log.Println("[CLIENT] Failed to join room, creating a new room...")
+		return c.Start()
+	}
+	return nil
 }
 
 func (c *Client) Start() error {
 	return c.Send(Message{
-		Type: MessageTypeCreateRoom,
+		Type:    MessageTypeCreateRoom,
+		Content: c.SessionKey,
 	})
 }
 
@@ -188,6 +209,8 @@ func (c *Client) listen() {
 			}
 
 			switch msg.Type {
+			case MessageTypePeerList:
+				log.Printf("[CLIENT] Peer list received for room %d", c.RoomID)
 			case MessageTypeRoomCreated:
 				fmt.Printf("[CLIENT SIGNALING] \n Room created: %d\n Copy this Room ID and share it with a friend!\n\n", msg.RoomID)
 				c.RoomID = msg.RoomID
@@ -197,7 +220,7 @@ func (c *Client) listen() {
 			case MessageTypeRoomJoined:
 				log.Printf("[CLIENT] Successfully joined room: %d", msg.RoomID)
 				c.RoomID = msg.RoomID
-				c.RequestPeerList()
+				c.RequestPeerList() // request the peer list to connect to others in the room
 				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
 
 			case MessageTypePeerJoined:
@@ -205,6 +228,11 @@ func (c *Client) listen() {
 
 			case MessageTypeStart:
 				log.Printf("[PEER TO PEER] %d Disconnecting from server", msg.Sender)
+
+			case MessageTypeDisconnect:
+				log.Printf("[CLIENT SIGNALING] Disconnected by server: %s", msg.Content)
+				c.Close()
+				os.Exit(1) // optional: or trigger reconnect logic
 			}
 
 			if c.onMessage != nil {

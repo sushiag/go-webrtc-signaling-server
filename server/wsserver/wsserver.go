@@ -124,7 +124,6 @@ func (wm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(resp)
 }
 
-// this upgrades HTTP to WebSocket and starts communication
 func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	if !wm.Authenticate(r) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -139,9 +138,6 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 		userID = wm.nextUserID
 		wm.apiKeyToUserID[apiKey] = userID
 		wm.nextUserID++
-	} else if oldConn, ok := wm.Connections[userID]; ok {
-		oldConn.Close()
-		delete(wm.Connections, userID)
 	}
 	wm.mtx.Unlock()
 
@@ -152,12 +148,24 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wm.mtx.Lock()
+	// >>> New: If an old connection exists for this userID, close it first
+	if oldConn, ok := wm.Connections[userID]; ok {
+		log.Printf("[WS] Duplicate connection for user %d detected, closing old connection", userID)
+		_ = oldConn.WriteJSON(Message{
+			Type:    TypeDisconnect,
+			Content: "duplicate-api-key",
+		})
+		oldConn.Close()
+		delete(wm.Connections, userID)
+	}
 	wm.Connections[userID] = conn
 	wm.mtx.Unlock()
 
+	// Flush buffered candidates if any
 	wm.flushBufferedMessages(userID)
 
 	log.Printf("[WS] User %d connected", userID)
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -173,6 +181,7 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 
+	// Cleanup on exit
 	wm.mtx.Lock()
 	delete(wm.Connections, userID)
 	wm.mtx.Unlock()
@@ -183,6 +192,12 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 
 // sends messages to the websocket
 func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
+	defer func() {
+		wm.disconnectUser(userID)
+		conn.Close()
+		log.Printf("[WS] User %d disconnected", userID)
+	}()
+
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -212,68 +227,76 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 		}
 
 		switch msg.Type {
+
 		case TypeCreateRoom:
 			log.Printf("[WS] User %d requested to create a room", userID)
-			roomID := wm.nextRoomID
-			wm.nextRoomID++
-			wm.AddUserToRoom(roomID, userID)
 
-			// 1. Send room-created
+			roomID := wm.CreateRoom(userID)
+
 			resp := Message{
 				Type:   TypeRoomCreated,
 				RoomID: roomID,
 				Sender: userID,
 			}
 			if err := conn.WriteJSON(resp); err != nil {
-				log.Printf("[WS ERROR] Failed to send room-created to user %d: %v", userID, err)
+				log.Printf("[WS] Failed to send room-created to user %d: %v", userID, err)
 			} else {
-				log.Printf("[WS DEBUG] Sent room-created to user %d: %+v", userID, resp)
+				log.Printf("[WS] Sent room-created to user %d: %+v", userID, resp)
 			}
+
 		case TypeJoin:
-			room, exists := wm.Rooms[msg.RoomID]
-			if !exists {
-				log.Printf("[WS] Room %d not found for user %d", msg.RoomID, userID)
+			{
+				wm.mtx.Lock()
+				room, exists := wm.Rooms[msg.RoomID]
+				wm.mtx.Unlock()
 
-				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Room does not exist")
-				_ = conn.WriteMessage(websocket.CloseMessage, closeMsg)
+				if !exists {
+					log.Printf("[WS] Room %d not found for user %d", msg.RoomID, userID)
 
-				conn.Close()
+					closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Room does not exist")
+					_ = conn.WriteMessage(websocket.CloseMessage, closeMsg)
+					return
+				}
 
 				wm.mtx.Lock()
-				delete(wm.Connections, userID)
+				room.Users[userID] = conn
 				wm.mtx.Unlock()
-				return
-			}
 
-			room.Users[userID] = wm.Connections[userID]
-
-			for uid, conn := range room.Users {
-				if uid != userID {
-					conn.WriteJSON(Message{
-						Type:   TypePeerJoined,
-						RoomID: msg.RoomID,
-						Sender: userID,
-					})
+				// Notify others
+				for uid, peerConn := range room.Users {
+					if uid != userID {
+						if err := peerConn.WriteJSON(Message{
+							Type:   TypePeerJoined,
+							RoomID: msg.RoomID,
+							Sender: userID,
+						}); err != nil {
+							log.Printf("[WS] Failed to notify peer %d: %v", uid, err)
+						}
+					}
 				}
-			}
 
-			conn.WriteJSON(Message{
-				Type:   TypeCreateRoom,
-				RoomID: msg.RoomID,
-			})
-			log.Printf("[WS] User %d joined room %d", userID, msg.RoomID)
-			wm.sendPeerListToUser(msg.RoomID, userID)
+				if err := conn.WriteJSON(Message{
+					Type:   TypeCreateRoom,
+					RoomID: msg.RoomID,
+				}); err != nil {
+					log.Printf("[WS] Failed to confirm join to user %d: %v", userID, err)
+					return
+				}
+
+				log.Printf("[WS] User %d joined room %d", userID, msg.RoomID)
+				wm.sendPeerListToUser(msg.RoomID, userID)
+			}
 
 		case TypeOffer, TypeAnswer, TypeICE:
-			log.Printf("[WS] Forwarding or buffering %s from %d to %d in room %d", msg.Type, msg.Sender, msg.Target, msg.RoomID)
+			log.Printf("[WS] Forwarding %s from %d to %d in room %d", msg.Type, msg.Sender, msg.Target, msg.RoomID)
 			wm.forwardOrBuffer(userID, msg)
 
-		case TypePeerList:
+		case TypePeerList, "peer-list-request":
 
 			wm.sendPeerListToUser(msg.RoomID, userID)
 
 		case TypeStart:
-			log.Printf("[WS] Received 'start' signal from user %d in room %d", msg.Sender, msg.RoomID)
+			log.Printf("[WS] Received 'start' from user %d in room %d", msg.Sender, msg.RoomID)
 
 			wm.mtx.Lock()
 			room, exists := wm.Rooms[msg.RoomID]
@@ -284,12 +307,11 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 				return
 			}
 
-			for uid := range room.Users {
-				conn := wm.Connections[uid]
-				if conn != nil {
-					log.Printf("[WS] Closing connection to user %d for P2P start", uid)
-					_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
-					_ = conn.Close()
+			for uid, peerConn := range room.Users {
+				if peerConn != nil {
+					log.Printf("[WS] Closing connection to user %d for P2P switch", uid)
+					_ = peerConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
+					_ = peerConn.Close()
 				}
 			}
 
@@ -409,6 +431,7 @@ func (wm *WebSocketManager) flushBufferedMessages(userID uint64) {
 	} else {
 		delete(wm.candidateBuffer, userID)
 	}
+
 }
 
 // creates room for peers
@@ -441,7 +464,6 @@ func (wm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool 
 	}
 	return true
 }
-
 func (wm *WebSocketManager) disconnectUser(userID uint64) {
 	wm.mtx.Lock()
 	defer wm.mtx.Unlock()
@@ -460,7 +482,7 @@ func (wm *WebSocketManager) disconnectUser(userID uint64) {
 		if _, inRoom := room.Users[userID]; inRoom {
 			delete(room.Users, userID)
 
-			// alerts other peers in the room that this user left
+			// notify peers
 			for _, conn := range room.Users {
 				if conn != nil {
 					_ = conn.WriteJSON(Message{
@@ -473,13 +495,23 @@ func (wm *WebSocketManager) disconnectUser(userID uint64) {
 
 			log.Printf("[WS] User %d removed from room %d", userID, roomID)
 
-			// if the room is empty after removal, delete the room
+			// delete room if empty
 			if len(room.Users) == 0 {
 				delete(wm.Rooms, roomID)
 				log.Printf("[WS] Room %d deleted because it is empty", roomID)
 			}
 		}
 	}
+
+	// 🚀 also free API key
+	for apiKey, id := range wm.apiKeyToUserID {
+		if id == userID {
+			delete(wm.apiKeyToUserID, apiKey)
+			log.Printf("[WS] API key %s released for user %d", apiKey, userID)
+			break
+		}
+	}
+
 }
 
 // handles the disconnection gracefully
@@ -509,8 +541,21 @@ func (wm *WebSocketManager) HandleDisconnect(msg Message) {
 	}
 
 	if len(room.Users) == 0 {
-		delete(wm.Rooms, msg.RoomID)
-		log.Printf("[WS] Room %d deleted", msg.RoomID)
+		log.Printf("[WS] Room %d is empty, starting deletion timer", msg.RoomID)
+
+		go func(roomID uint64) {
+			time.Sleep(30 * time.Second) // wait for 30 seconds for the room to be empty before clearing this room up
+			wm.mtx.Lock()
+			defer wm.mtx.Unlock()
+
+			room, exists := wm.Rooms[roomID]
+			if exists && len(room.Users) == 0 {
+				delete(wm.Rooms, roomID)
+				log.Printf("[WS] Room %d deleted after timeout", roomID)
+			} else {
+				log.Printf("[WS] Room %d still active or not empty, not deleting", roomID)
+			}
+		}(msg.RoomID)
 	}
 }
 
