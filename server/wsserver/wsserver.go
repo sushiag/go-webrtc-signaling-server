@@ -135,10 +135,10 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 
 	wm.mtx.Lock()
 
-	// Check if there is an old userID for this API key
+	// check if there is an old userID for this API key
 	oldUserID, exists := wm.apiKeyToUserID[apiKey]
 	if exists {
-		// If so, disconnect the old connection
+
 		if oldConn, ok := wm.Connections[oldUserID]; ok {
 			log.Printf("[WS] Disconnecting old userID %d for API key %s", oldUserID, apiKey)
 			oldConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "New connection established"))
@@ -147,7 +147,7 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Always generate a NEW userID for the new connection
+	// always generate a NEW userID for the new connection
 	newUserID := wm.nextUserID
 	wm.apiKeyToUserID[apiKey] = newUserID
 	wm.nextUserID++
@@ -164,7 +164,7 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	wm.Connections[newUserID] = conn
 	wm.mtx.Unlock()
 
-	// Flush any buffered messages (optional)
+	// flush any buffered messages (optional)
 	wm.flushBufferedMessages(newUserID)
 
 	log.Printf("[WS] User %d connected with API key %s", newUserID, apiKey)
