@@ -134,24 +134,15 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	apiKey := r.Header.Get("X-Api-Key")
 
 	wm.mtx.Lock()
-
-	// check if there is an old userID for this API key
-	oldUserID, exists := wm.apiKeyToUserID[apiKey]
-	if exists {
-
-		if oldConn, ok := wm.Connections[oldUserID]; ok {
-			log.Printf("[WS] Disconnecting old userID %d for API key %s", oldUserID, apiKey)
-			oldConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "New connection established"))
-			oldConn.Close()
-			delete(wm.Connections, oldUserID)
-		}
+	userID, exists := wm.apiKeyToUserID[apiKey]
+	if !exists {
+		userID = wm.nextUserID
+		wm.apiKeyToUserID[apiKey] = userID
+		wm.nextUserID++
+	} else if oldConn, ok := wm.Connections[userID]; ok {
+		oldConn.Close()
+		delete(wm.Connections, userID)
 	}
-
-	// always generate a NEW userID for the new connection
-	newUserID := wm.nextUserID
-	wm.apiKeyToUserID[apiKey] = newUserID
-	wm.nextUserID++
-
 	wm.mtx.Unlock()
 
 	conn, err := wm.upgrader.Upgrade(w, r, nil)
@@ -161,35 +152,33 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wm.mtx.Lock()
-	wm.Connections[newUserID] = conn
+	wm.Connections[userID] = conn
 	wm.mtx.Unlock()
 
-	// flush any buffered messages (optional)
-	wm.flushBufferedMessages(newUserID)
+	wm.flushBufferedMessages(userID)
 
-	log.Printf("[WS] User %d connected with API key %s", newUserID, apiKey)
-
+	log.Printf("[WS] User %d connected", userID)
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		wm.readMessages(newUserID, conn)
+		wm.readMessages(userID, conn)
 	}()
 
 	go func() {
 		defer wg.Done()
-		wm.sendPings(newUserID, conn)
+		wm.sendPings(userID, conn)
 	}()
 
 	wg.Wait()
 
 	wm.mtx.Lock()
-	delete(wm.Connections, newUserID)
+	delete(wm.Connections, userID)
 	wm.mtx.Unlock()
 	conn.Close()
 
-	log.Printf("[WS] User %d disconnected", newUserID)
+	log.Printf("[WS] User %d disconnected", userID)
 }
 
 // sends messages to the websocket
@@ -228,6 +217,8 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 			roomID := wm.nextRoomID
 			wm.nextRoomID++
 			wm.AddUserToRoom(roomID, userID)
+
+			// 1. Send room-created
 			resp := Message{
 				Type:   TypeRoomCreated,
 				RoomID: roomID,
