@@ -44,15 +44,16 @@ type Message struct {
 
 // defined struct client instance with connection and state data
 type Client struct {
-	Conn      *websocket.Conn // websocket connection
-	ServerURL string          //server address
-	ApiKey    string          // api key for the auth
-	UserID    uint64          // unique id assigned to the client
-	RoomID    uint64          // current room joined, assigned to client, user
-	onMessage func(Message)   // callback function for handling messagess
-	doneCh    chan struct{}   // chanel for the signal connection closing
-	isClosed  bool            // closing when os exit
-	SendMutex sync.Mutex      // concurrent writting to the websocket. safe thread
+	Conn       *websocket.Conn // websocket connection
+	ServerURL  string          //server address
+	ApiKey     string          // api key for the auth
+	SessionKey string          // session key token to be received by the server
+	UserID     uint64          // unique id assigned to the client
+	RoomID     uint64          // current room joined, assigned to client, user
+	onMessage  func(Message)   // callback function for handling messagess
+	doneCh     chan struct{}   // chanel for the signal connection closing
+	isClosed   bool            // closing when os exit
+	SendMutex  sync.Mutex      // concurrent writting to the websocket. safe thread
 }
 
 // to load the .env file once the package/module initializes
@@ -87,7 +88,7 @@ func (c *Client) PreAuthenticate() error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("[CLIENT SIGNALING] auth failed: %s", resp.Status)
 	}
-	// decodes the response to user id
+	// decodes the response unto user id
 	var result struct {
 		UserID uint64 `json:"userid"`
 	}
@@ -102,7 +103,8 @@ func (c *Client) PreAuthenticate() error {
 // initializes the webscoekt connection and starts listening for message
 func (c *Client) Init() error {
 	headers := http.Header{}
-	headers.Set("X-Api-Key", c.ApiKey) // set the auth header
+	headers.Set("X-Api-Key", c.ApiKey)         // set the auth header
+	headers.Set("X-Session-Key", c.SessionKey) // <-- Add this
 
 	conn, _, err := websocket.DefaultDialer.Dial(c.ServerURL, headers)
 	if err != nil {

@@ -13,6 +13,74 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestE2EWebSocketFlow(t *testing.T) {
+	manager := NewWebSocketManager()
+	manager.SetValidApiKeys(map[string]bool{
+		"test-key": true,
+	})
+
+	// Set up server handlers
+	authSrv := httptest.NewServer(http.HandlerFunc(manager.AuthHandler))
+	defer authSrv.Close()
+
+	wsSrv := httptest.NewServer(http.HandlerFunc(manager.Handler))
+	defer wsSrv.Close()
+
+	// Step 1: Authenticate
+	authPayload := map[string]string{
+		"apikey": "test-key",
+	}
+	data, _ := json.Marshal(authPayload)
+
+	resp, err := http.Post(authSrv.URL, "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("Auth failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var authResp struct {
+		UserID uint64 `json:"userid"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+		t.Fatalf("Invalid auth response: %v", err)
+	}
+
+	// Step 2: Connect via WebSocket
+	wsURL := "ws" + wsSrv.URL[len("http"):]
+
+	header := http.Header{}
+	header.Set("X-Api-Key", "test-key")
+
+	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("WebSocket connection failed: %v", err)
+	}
+	defer wsConn.Close()
+
+	// Step 3: Send create-room
+	createRoomMsg := map[string]interface{}{
+		"type":   "create-room",
+		"from":   authResp.UserID,
+		"apikey": "test-key",
+	}
+	if err := wsConn.WriteJSON(createRoomMsg); err != nil {
+		t.Fatalf("Failed to send create-room: %v", err)
+	}
+
+	// Step 4: Wait for room-created
+	wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var recv map[string]interface{}
+	if err := wsConn.ReadJSON(&recv); err != nil {
+		t.Fatalf("Failed to read room-created: %v", err)
+	}
+
+	if recv["type"] != "room-created" {
+		t.Fatalf("Expected room-created, got: %+v", recv)
+	}
+
+	t.Logf("Room created successfully: %+v", recv)
+}
+
 func TestFullE2EFlow(t *testing.T) {
 	manager := NewWebSocketManager()
 	apiKeys := map[string]bool{
