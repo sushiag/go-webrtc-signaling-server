@@ -39,8 +39,7 @@ func TestFullE2EFlow(t *testing.T) {
 
 	// step 1:  Authenticate clients
 	type authResp struct {
-		UserID     uint64 `json:"userid"`
-		SessionKey string `json:"sessionkey"`
+		UserID uint64 `json:"userid"`
 	}
 	auth := func(apikey string) authResp {
 		body, _ := json.Marshal(map[string]string{

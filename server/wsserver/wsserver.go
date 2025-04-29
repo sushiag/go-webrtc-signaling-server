@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -113,11 +112,9 @@ func (wm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request) 
 	wm.mtx.Unlock()
 
 	resp := struct {
-		UserID     uint64 `json:"userid"`
-		SessionKey string `json:"sessionkey"`
+		UserID uint64 `json:"userid"`
 	}{
-		UserID:     userID,
-		SessionKey: uuid.New().String(),
+		UserID: userID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -148,15 +145,15 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wm.mtx.Lock()
-	// >>> New: If an old connection exists for this userID, close it first
-	if oldConn, ok := wm.Connections[userID]; ok {
-		log.Printf("[WS] Duplicate connection for user %d detected, closing old connection", userID)
-		_ = oldConn.WriteJSON(Message{
-			Type:    TypeDisconnect,
-			Content: "duplicate-api-key",
-		})
-		oldConn.Close()
-		delete(wm.Connections, userID)
+	if _, ok := wm.Connections[userID]; ok {
+		wm.mtx.Unlock()
+		log.Printf("[WS] Duplicate connection attempt for user %d. Denying new connection.", userID)
+
+		// disconnect second user
+		closeMsg := websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Duplicate connection detected")
+		conn.WriteMessage(websocket.CloseMessage, closeMsg)
+		conn.Close()
+		return
 	}
 	wm.Connections[userID] = conn
 	wm.mtx.Unlock()
@@ -185,7 +182,7 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	wm.mtx.Lock()
 	delete(wm.Connections, userID)
 	wm.mtx.Unlock()
-	conn.Close()
+	// conn.Close() commenting out for testing
 
 	log.Printf("[WS] User %d disconnected", userID)
 }
@@ -202,7 +199,7 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("WebSocket read error for user %d: %v", userID, err)
-			wm.disconnectUser(userID) // Clean up connection on error
+			wm.disconnectUser(userID) // clean up connection on error
 			if ce, ok := err.(*websocket.CloseError); ok {
 				switch ce.Code {
 				case websocket.CloseNormalClosure:
