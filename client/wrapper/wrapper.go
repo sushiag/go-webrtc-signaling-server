@@ -27,7 +27,7 @@ func JoinSession(sessionID string) error {
 }
 
 func SendSignalingMessage(targetID string, message []byte) error {
-	return client.SendMessage(targetID, message)
+	return client.SendSignalingMessage(targetID, message)
 }
 
 func SetMessageHandler(callback func(sourceID string, message []byte)) {

@@ -41,6 +41,7 @@ func NewPeerManager() *PeerManager {
 }
 
 func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *clienthandle.Client) {
+
 	switch msg.Type {
 	case clienthandle.MessageTypePeerList:
 		for _, peerID := range msg.Users {

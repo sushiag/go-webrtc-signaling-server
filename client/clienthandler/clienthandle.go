@@ -263,3 +263,24 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
+
+// sends a signaling message to a specific target user.
+func (c *Client) SendSignalingMessage(targetID uint64, msgType string, sdpOrCandidate string) error {
+	msg := Message{
+		Type:   msgType,
+		Target: targetID,
+		RoomID: c.RoomID,
+		Sender: c.UserID,
+	}
+
+	switch msgType {
+	case MessageTypeOffer, MessageTypeAnswer:
+		msg.SDP = sdpOrCandidate
+	case MessageTypeICECandidate:
+		msg.Candidate = sdpOrCandidate
+	default:
+		return fmt.Errorf("unsupported signaling message type: %s", msgType)
+	}
+
+	return c.Send(msg)
+}
