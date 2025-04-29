@@ -16,14 +16,14 @@ import (
 
 // pre-defined constants for all the signaling messages types used in client-server communication
 const (
-	MessageTypeCreateRoom   = "create-room"
+	MessageTypeCreateRoom   = "create-room" // 	for function Create () to create rooms
 	MessageTypeRoomCreated  = "room-created"
-	MessageTypeJoinRoom     = "join-room"
+	MessageTypeJoinRoom     = "join-room" // for function Join() to join rooms
 	MessageTypeRoomJoined   = "room-joined"
 	MessageTypeOffer        = "offer"
 	MessageTypeAnswer       = "answer"
 	MessageTypeICECandidate = "ice-candidate"
-	MessageTypeDisconnect   = "disconnect"
+	MessageTypeDisconnect   = "disconnect" // for function DisconnectHandle to disconnect from room
 	MessageTypePeerJoined   = "peer-joined"
 	MessageTypePeerListReq  = "peer-list-request"
 	MessageTypePeerList     = "peer-list"
@@ -167,12 +167,12 @@ func (c *Client) Join(roomID string) error {
 	})
 	if err != nil {
 		log.Println("[CLIENT] Failed to join room, creating a new room...")
-		return c.Start()
+		return c.Create()
 	}
 	return nil
 }
 
-func (c *Client) Start() error {
+func (c *Client) Create() error {
 	return c.Send(Message{
 		Type: MessageTypeCreateRoom,
 	})

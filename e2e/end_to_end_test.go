@@ -109,7 +109,7 @@ func TestClientToClientSignaling(t *testing.T) {
 	})
 
 	// Start signaling by creating a room
-	if err := client1.Start(); err != nil {
+	if err := client1.Create(); err != nil {
 		t.Fatalf("client1 start failed: %v", err)
 	}
 

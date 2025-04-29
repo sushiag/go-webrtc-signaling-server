@@ -40,7 +40,7 @@ func main() {
 		}
 	} else {
 		log.Println("[CLIENT] No room provided. Creating new room...")
-		if err := client.Start(); err != nil {
+		if err := client.Create(); err != nil {
 			log.Fatal("[CLIENT] Create room failed:", err)
 		}
 	}
