@@ -13,7 +13,7 @@ import (
 
 func main() {
 	room := flag.String("room", "", "Room ID (optional)")
-	startP2P := flag.Bool("start", false, "Send 'start' signal to server to disconnect for P2P")
+	disconnectfromserver := flag.Bool("start", false, "Send 'start' signal to server to disconnect for P2P")
 
 	flag.Parse()
 
@@ -35,7 +35,7 @@ func main() {
 
 	if *room != "" {
 		log.Printf("[CLIENT] You're attempting to join room: %s", *room)
-		if err := client.Join(*room); err != nil {
+		if err := client.JoinRoom(*room); err != nil {
 			log.Fatal("[CLIENT] Join failed:", err)
 		}
 	} else {
@@ -45,16 +45,16 @@ func main() {
 		}
 	}
 
-	if *startP2P {
+	if *disconnectfromserver {
 		startMsg := clienthandle.Message{
-			Type:   "start",
+			Type:   "disconnect-from-server",
 			RoomID: client.RoomID,
 			Sender: client.UserID,
 		}
 		if err := client.Send(startMsg); err != nil {
 			log.Println("[CLIENT] Failed to send 'start':", err)
 		} else {
-			log.Println("[CLIENT] Sent 'start' command to server to go P2P")
+			log.Println("[CLIENT] Sent 'disconnect-from-server' command to server to go P2P")
 		}
 	}
 

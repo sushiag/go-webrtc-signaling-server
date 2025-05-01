@@ -35,7 +35,7 @@ func main() {
 	http.HandleFunc("/ws", wsManager.Handler)
 
 	log.Println("[SERVER] WebSocket server listening on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe("127.0.0.1:8080", nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

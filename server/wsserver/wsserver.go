@@ -41,9 +41,11 @@ type Message struct {
 
 // struct for a group of connected users
 type Room struct {
-	ID       uint64
-	Users    map[uint64]*websocket.Conn
-	ReadyMap map[uint64]bool
+	ID        uint64
+	Users     map[uint64]*websocket.Conn
+	ReadyMap  map[uint64]bool
+	JoinOrder []uint64
+	HostID    uint64
 }
 
 // this handles connection and room management
@@ -230,6 +232,13 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 
 			roomID := wm.CreateRoom(userID)
 
+			// Set initial host
+			wm.mtx.Lock()
+			room := wm.Rooms[roomID]
+			room.HostID = userID
+			room.JoinOrder = append(room.JoinOrder, userID)
+			wm.mtx.Unlock()
+
 			resp := Message{
 				Type:   TypeRoomCreated,
 				RoomID: roomID,
@@ -242,47 +251,43 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 			}
 
 		case TypeJoin:
-			{
-				wm.mtx.Lock()
-				room, exists := wm.Rooms[msg.RoomID]
+			wm.mtx.Lock()
+			room, exists := wm.Rooms[msg.RoomID]
+			if !exists {
 				wm.mtx.Unlock()
-
-				if !exists {
-					log.Printf("[WS] Room %d not found for user %d", msg.RoomID, userID)
-
-					closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Room does not exist")
-					_ = conn.WriteMessage(websocket.CloseMessage, closeMsg)
-					return
-				}
-
-				wm.mtx.Lock()
-				room.Users[userID] = conn
-				wm.mtx.Unlock()
-
-				// Notify others
-				for uid, peerConn := range room.Users {
-					if uid != userID {
-						if err := peerConn.WriteJSON(Message{
-							Type:   TypePeerJoined,
-							RoomID: msg.RoomID,
-							Sender: userID,
-						}); err != nil {
-							log.Printf("[WS] Failed to notify peer %d: %v", uid, err)
-						}
-					}
-				}
-
-				if err := conn.WriteJSON(Message{
-					Type:   TypeCreateRoom,
-					RoomID: msg.RoomID,
-				}); err != nil {
-					log.Printf("[WS] Failed to confirm join to user %d: %v", userID, err)
-					return
-				}
-
-				log.Printf("[WS] User %d joined room %d", userID, msg.RoomID)
-				wm.sendPeerListToUser(msg.RoomID, userID)
+				log.Printf("[WS] Room %d not found for user %d", msg.RoomID, userID)
+				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Room does not exist")
+				_ = conn.WriteMessage(websocket.CloseMessage, closeMsg)
+				return
 			}
+
+			room.Users[userID] = conn
+			room.JoinOrder = append(room.JoinOrder, userID)
+
+			// If no host set yet (paranoia check)
+			if room.HostID == 0 {
+				room.HostID = userID
+			}
+			wm.mtx.Unlock()
+
+			// Notify others
+			for uid, peerConn := range room.Users {
+				if uid != userID {
+					_ = peerConn.WriteJSON(Message{
+						Type:   TypePeerJoined,
+						RoomID: msg.RoomID,
+						Sender: userID,
+					})
+				}
+			}
+
+			_ = conn.WriteJSON(Message{
+				Type:   TypeCreateRoom,
+				RoomID: msg.RoomID,
+			})
+
+			log.Printf("[WS] User %d joined room %d", userID, msg.RoomID)
+			wm.sendPeerListToUser(msg.RoomID, userID)
 
 		case TypeOffer, TypeAnswer, TypeICE:
 			log.Printf("[WS] Forwarding %s from %d to %d in room %d", msg.Type, msg.Sender, msg.Target, msg.RoomID)
@@ -461,6 +466,7 @@ func (wm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool 
 	}
 	return true
 }
+
 func (wm *WebSocketManager) disconnectUser(userID uint64) {
 	wm.mtx.Lock()
 	defer wm.mtx.Unlock()
@@ -513,47 +519,49 @@ func (wm *WebSocketManager) disconnectUser(userID uint64) {
 
 // handles the disconnection gracefully
 func (wm *WebSocketManager) HandleDisconnect(msg Message) {
-	if !wm.AreInSameRoom(msg.RoomID, []uint64{msg.Sender, msg.Target}) {
-		log.Printf("[WS] Disconnect failed: not in same room")
-		return
-	}
+	roomID := msg.RoomID
+	userID := msg.Sender
 
 	wm.mtx.Lock()
-	defer wm.mtx.Unlock()
-
-	room, exists := wm.Rooms[msg.RoomID]
+	room, exists := wm.Rooms[roomID]
 	if !exists {
+		wm.mtx.Unlock()
 		return
 	}
 
-	for _, userID := range []uint64{msg.Sender, msg.Target} {
-		if conn, ok := wm.Connections[userID]; ok {
-			if conn != nil {
-				conn.Close()
-			}
-			delete(wm.Connections, userID)
-			delete(room.Users, userID)
-			log.Printf("[WS] User %d disconnected from room %d", userID, msg.RoomID)
+	delete(room.Users, userID)
+
+	// remove from JoinOrder
+	for i, id := range room.JoinOrder {
+		if id == userID {
+			room.JoinOrder = append(room.JoinOrder[:i], room.JoinOrder[i+1:]...)
+			break
 		}
 	}
 
-	if len(room.Users) == 0 {
-		log.Printf("[WS] Room %d is empty, starting deletion timer", msg.RoomID)
+	// reassign host if needed
+	if room.HostID == userID {
+		if len(room.JoinOrder) > 0 {
+			newHostID := room.JoinOrder[0]
+			room.HostID = newHostID
+			newHostConn := room.Users[newHostID]
 
-		go func(roomID uint64) {
-			time.Sleep(30 * time.Second) // wait for 30 seconds for the room to be empty before clearing this room up
-			wm.mtx.Lock()
-			defer wm.mtx.Unlock()
-
-			room, exists := wm.Rooms[roomID]
-			if exists && len(room.Users) == 0 {
-				delete(wm.Rooms, roomID)
-				log.Printf("[WS] Room %d deleted after timeout", roomID)
-			} else {
-				log.Printf("[WS] Room %d still active or not empty, not deleting", roomID)
+			if newHostConn != nil {
+				_ = newHostConn.WriteJSON(Message{
+					Type:   "host-info",
+					Sender: newHostID,
+				})
 			}
-		}(msg.RoomID)
+		} else {
+			room.HostID = 0
+		}
 	}
+
+	// clean up empty room
+	if len(room.Users) == 0 {
+		delete(wm.Rooms, roomID)
+	}
+	wm.mtx.Unlock()
 }
 
 // keeps server alive

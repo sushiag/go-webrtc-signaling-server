@@ -28,6 +28,8 @@ const (
 	MessageTypePeerListReq  = "peer-list-request"
 	MessageTypePeerList     = "peer-list"
 	MessageTypeStart        = "start"
+	MessageTypeStartSession = "start-session" // for func StartSession to start p2p
+	MessageTypeSendMessage  = "send-message"
 )
 
 // defined struct 'Message' for websocket communication
@@ -40,6 +42,7 @@ type Message struct {
 	Candidate string   `json:"candidate,omitempty"` // ice-candiate string
 	SDP       string   `json:"sdp,omitempty"`       // session description
 	Users     []uint64 `json:"users,omitempty"`     // list of user ids
+	Text      string   `json:"text,omitempty"`      // for send messages
 }
 
 // defined struct client instance with connection and state data
@@ -103,8 +106,7 @@ func (c *Client) PreAuthenticate() error {
 // initializes the webscoekt connection and starts listening for message
 func (c *Client) Init() error {
 	headers := http.Header{}
-	headers.Set("X-Api-Key", c.ApiKey)         // set the auth header
-	headers.Set("X-Session-Key", c.SessionKey) // <-- Add this
+	headers.Set("X-Api-Key", c.ApiKey) // set the auth header
 
 	conn, _, err := websocket.DefaultDialer.Dial(c.ServerURL, headers)
 	if err != nil {
@@ -155,31 +157,46 @@ func (c *Client) Send(msg Message) error {
 	return nil
 }
 
-func (c *Client) Join(roomID string) error {
+func (c *Client) JoinRoom(roomID string) error {
 	roomIDUint64, err := strconv.ParseUint(roomID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("[CLIENT SIGNALING] invalid room ID: %v", err)
 	}
 	c.RoomID = roomIDUint64
+
 	err = c.Send(Message{
 		Type:   MessageTypeJoinRoom,
 		RoomID: c.RoomID,
 	})
 	if err != nil {
-		log.Println("[CLIENT] Failed to join room, creating a new room...")
-		return c.Create()
+		log.Printf("[CLIENT] Failed to join room: %v", err)
+		return fmt.Errorf("[CLIENT SIGNALING] could not join room %d: %v", c.RoomID, err)
 	}
+
+	log.Printf("[CLIENT] Join request sent for room: %d", c.RoomID)
 	return nil
 }
 
 func (c *Client) Create() error {
-	return c.Send(Message{
+	err := c.Send(Message{
 		Type: MessageTypeCreateRoom,
 	})
+	if err != nil {
+		log.Printf("[CLIENT SIGNALING] Failed to create room: %v", err)
+		return err
+	}
+	log.Println("[CLIENT SIGNALING] Room creation request sent.")
+	return nil
 }
 
 func (c *Client) SetMessageHandler(handler func(Message)) {
 	c.onMessage = handler
+}
+
+func (c *Client) StartSession() error { // go to peer to peer
+	return c.Send(Message{
+		Type: MessageTypeStartSession,
+	})
 }
 
 func (c *Client) listen() {
@@ -278,6 +295,9 @@ func (c *Client) SendSignalingMessage(targetID uint64, msgType string, sdpOrCand
 		msg.SDP = sdpOrCandidate
 	case MessageTypeICECandidate:
 		msg.Candidate = sdpOrCandidate
+	case MessageTypeSendMessage:
+		msg.Content = sdpOrCandidate // repurpose to send custom data
+
 	default:
 		return fmt.Errorf("unsupported signaling message type: %s", msgType)
 	}
