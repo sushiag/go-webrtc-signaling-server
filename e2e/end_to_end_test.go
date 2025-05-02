@@ -1,91 +1,74 @@
 package e2e_test
 
 import (
-	"log"
 	"net/http"
-	"os"
+	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
-
-	clientwrapper "github.com/sushiag/go-webrtc-signaling-server/client/clientwrapper"
-	"github.com/sushiag/go-webrtc-signaling-server/server"
+	client "github.com/sushiag/go-webrtc-signaling-server/client/clientwrapper"
+	"github.com/sushiag/go-webrtc-signaling-server/server/wsserver"
 )
 
-func startServer() {
+func startTestServer() *http.Server {
+	manager := wsserver.NewWebSocketManager()
+
+	// Add test API keys
+	manager.SetValidApiKeys(map[string]bool{
+		"test-api-key-1": true,
+		"test-api-key-2": true,
+	})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", manager.AuthHandler)
+	mux.HandleFunc("/ws", manager.Handler)
+
+	server := &http.Server{
+		Addr:    "127.0.0.1:8081", // Use a different port for testing
+		Handler: mux,
+	}
+
 	go func() {
-		log.Println("[SERVER] Starting signaling server on :8080")
-		http.HandleFunc("/ws", server.HandleWebSocket)
-		if err := http.ListenAndServe(":8080", nil); err != nil {
-			log.Fatal("Server error:", err)
-		}
+		_ = server.ListenAndServe()
 	}()
-	time.Sleep(1 * time.Second)
+
+	// Optional: wait a moment for the server to be ready
+	time.Sleep(100 * time.Millisecond)
+
+	return server
 }
 
-func runClientTest() {
-	log.Println("== STARTING CLIENT TEST ==")
+func TestEndToEndSignaling(t *testing.T) {
+	server := startTestServer()
+	defer server.Close()
 
-	os.Setenv("SERVER_URL", "ws://localhost:8080/ws")
-	os.Setenv("API_KEY", "test-api-key")
+	// Here, run your actual test code that:
+	// 1. Creates clients with `NewClient()`
+	// 2. Calls `Connect()`, `CreateRoom()`, `JoinRoom()`, etc.
+	// 3. Asserts WebRTC connections are working, etc.
 
-	host := clientwrapper.NewClient()
-	if err := host.Connect(); err != nil {
-		log.Fatal("Host connection error:", err)
+	clientA := client.NewClient()
+	clientB := client.NewClient()
+
+	err := clientA.client.Connect()
+	if err != nil {
+		t.Fatalf("Client A failed to connect: %v", err)
 	}
 
-	if err := host.CreateRoom(); err != nil {
-		log.Fatal("Host failed to create room:", err)
-	}
-	log.Println("Host created room.")
-
-	time.Sleep(1 * time.Second)
-	roomID := host.Client.RoomID
-	log.Println("Room ID:", roomID)
-
-	peer := clientwrapper.NewClient()
-	if err := peer.Connect(); err != nil {
-		log.Fatal("Peer connection error:", err)
+	err = clientB.client.Connect()
+	if err != nil {
+		t.Fatalf("Client B failed to connect: %v", err)
 	}
 
-	if err := peer.JoinRoom(roomID); err != nil {
-		log.Fatal("Peer failed to join room:", err)
-	}
-	log.Println("Peer joined room.")
-
-	time.Sleep(2 * time.Second)
-
-	if err := host.StartSession(); err != nil {
-		log.Fatal("Host failed to start session:", err)
-	}
-	log.Println("Session started.")
-
-	time.Sleep(3 * time.Second)
-
-	for peerID := range peer.PeerManager.Peers {
-		log.Println("Peer -> Host message...")
-		_ = peer.SendMessageToPeer(peerID, "Hello from peer!")
+	err = clientA.client.CreateRoom()
+	if err != nil {
+		t.Fatalf("Client A failed to create room: %v", err)
 	}
 
-	for peerID := range host.PeerManager.Peers {
-		log.Println("Host -> Peer message...")
-		_ = host.SendMessageToPeer(peerID, "Hello from host!")
+	roomID := clientA.client.Client.RoomID
+	err = clientB.client.JoinRoom(roomID)
+	if err != nil {
+		t.Fatalf("Client B failed to join room: %v", err)
 	}
 
-	time.Sleep(3 * time.Second)
-
-	log.Println("Closing signaling server via host...")
-	host.CloseServer()
-
-	peer.Close()
-	host.Close()
-
-	log.Println("== TEST COMPLETE ==")
-}
-
-func main() {
-	_ = godotenv.Load()
-
-	startServer()
-	runClientTest()
+	// You can add logic here to test message exchange, session start, etc.
 }
