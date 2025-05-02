@@ -71,7 +71,7 @@ func (w *Wrapper) LeaveRoom(peerID uint64) {
 }
 
 func (cw *Wrapper) CloseServer() {
-	// nly allow the host to close the server and transition to P2P
+	// only allow the host to close the server and transition to P2P
 	if cw.IsHost {
 		if cw.PeerManager != nil && cw.Client != nil {
 			// disconnect all peers and transition to P2P

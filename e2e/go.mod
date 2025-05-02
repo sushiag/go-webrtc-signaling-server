@@ -33,6 +33,7 @@ require (
 	github.com/pion/turn/v4 v4.0.1 // indirect
 	github.com/pion/webrtc/v4 v4.0.15 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/sushiag/go-webrtc-signaling-server/server v0.0.0-20250501162938-30973ccb994f // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/net v0.39.0 // indirect

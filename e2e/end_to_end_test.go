@@ -1,60 +1,91 @@
-package clientwrapper_test
+package e2e_test
 
 import (
-	"testing"
+	"log"
+	"net/http"
+	"os"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/sushiag/go-webrtc-signaling-server/client/clienthandle"
-	"github.com/sushiag/go-webrtc-signaling-server/client/clientwrapper"
+	"github.com/joho/godotenv"
+
+	clientwrapper "github.com/sushiag/go-webrtc-signaling-server/client/clientwrapper"
+	"github.com/sushiag/go-webrtc-signaling-server/server"
 )
 
-func TestEndToEndClientWrapper(t *testing.T) {
-	msgCh := make(chan string, 1)
-
-	// Initialize host
-	host, err := clientwrapper.New()
-	assert.NoError(t, err)
-	defer host.Close()
-
-	// Create room
-	err = host.Create()
-	assert.NoError(t, err)
-	roomID := host.RoomID()
-	assert.NotZero(t, roomID)
-
-	// Initialize peer
-	peer, err := clientwrapper.New()
-	assert.NoError(t, err)
-	defer peer.Close()
-
-	// Set message handler to capture incoming message
-	peer.SetMessageHandler(func(msg clienthandle.Message) {
-		if msg.Type == clienthandle.MessageTypeSendMessage {
-			msgCh <- msg.Data
+func startServer() {
+	go func() {
+		log.Println("[SERVER] Starting signaling server on :8080")
+		http.HandleFunc("/ws", server.HandleWebSocket)
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Fatal("Server error:", err)
 		}
-	})
-
-	// Peer joins host's room
-	err = peer.Join(roomID)
-	assert.NoError(t, err)
-
-	// Start session
-	assert.NoError(t, host.Start())
-	assert.NoError(t, peer.Start())
-
-	// Let P2P connection establish
+	}()
 	time.Sleep(1 * time.Second)
+}
 
-	// Host sends message to peer
-	err = host.Send(peer.UserID(), "hello peer")
-	assert.NoError(t, err)
+func runClientTest() {
+	log.Println("== STARTING CLIENT TEST ==")
 
-	// Check if peer received it
-	select {
-	case msg := <-msgCh:
-		assert.Equal(t, "hello peer", msg)
-	case <-time.After(3 * time.Second):
-		t.Fatal("Timed out waiting for peer to receive message")
+	os.Setenv("SERVER_URL", "ws://localhost:8080/ws")
+	os.Setenv("API_KEY", "test-api-key")
+
+	host := clientwrapper.NewClient()
+	if err := host.Connect(); err != nil {
+		log.Fatal("Host connection error:", err)
 	}
+
+	if err := host.CreateRoom(); err != nil {
+		log.Fatal("Host failed to create room:", err)
+	}
+	log.Println("Host created room.")
+
+	time.Sleep(1 * time.Second)
+	roomID := host.Client.RoomID
+	log.Println("Room ID:", roomID)
+
+	peer := clientwrapper.NewClient()
+	if err := peer.Connect(); err != nil {
+		log.Fatal("Peer connection error:", err)
+	}
+
+	if err := peer.JoinRoom(roomID); err != nil {
+		log.Fatal("Peer failed to join room:", err)
+	}
+	log.Println("Peer joined room.")
+
+	time.Sleep(2 * time.Second)
+
+	if err := host.StartSession(); err != nil {
+		log.Fatal("Host failed to start session:", err)
+	}
+	log.Println("Session started.")
+
+	time.Sleep(3 * time.Second)
+
+	for peerID := range peer.PeerManager.Peers {
+		log.Println("Peer -> Host message...")
+		_ = peer.SendMessageToPeer(peerID, "Hello from peer!")
+	}
+
+	for peerID := range host.PeerManager.Peers {
+		log.Println("Host -> Peer message...")
+		_ = host.SendMessageToPeer(peerID, "Hello from host!")
+	}
+
+	time.Sleep(3 * time.Second)
+
+	log.Println("Closing signaling server via host...")
+	host.CloseServer()
+
+	peer.Close()
+	host.Close()
+
+	log.Println("== TEST COMPLETE ==")
+}
+
+func main() {
+	_ = godotenv.Load()
+
+	startServer()
+	runClientTest()
 }

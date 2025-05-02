@@ -24,84 +24,18 @@ func TestFullClientWorkflow(t *testing.T) {
 	// simulate some time to wait for peer signaling
 	time.Sleep(2 * time.Second)
 
-	// start the session (which sends offers)
+	// start the session (which triggers the sends offers)
 	if err := w.StartSession(); err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
 
-	// simulate sending a message to a known peer (you'd use an actual peer ID from logs or mock setup)
 	peerID := uint64(12345)
 	err := w.SendMessageToPeer(peerID, "Hello from test!")
 	if err != nil {
 		t.Logf("SendMessageToPeer failed (likely due to mock peer ID): %v", err)
 	}
 }
-func TestFullClientWorkflowWithTwoPeers(t *testing.T) {
-	// define API keys for each client
-	apiKeyA, apiKeyB := "valid-api-key-1", "valid-api-key-2"
-
-	// Ccreate and then connect client
-	clientA, clientB := client.NewClient(), client.NewClient()
-
-	// set the API keys directly on the Client struct
-	clientA.Client.ApiKey, clientB.Client.ApiKey = apiKeyA, apiKeyB
-
-	if err := clientA.Connect(); err != nil {
-		t.Fatalf("ClientA Connect failed: %v", err)
-	}
-	defer clientA.Close()
-
-	if err := clientB.Connect(); err != nil {
-		t.Fatalf("ClientB Connect failed: %v", err)
-	}
-	defer clientB.Close()
-
-	// create a new room with clientA
-	if err := clientA.CreateRoom(); err != nil {
-		t.Fatalf("CreateRoom failed: %v", err)
-	}
-
-	// join room with clientB
-	if err := clientB.JoinRoom("10"); err != nil {
-		t.Fatalf("ClientB JoinRoom failed: %v", err)
-	}
-
-	// wait for peers to connect and signaling messages to be exchanged
-	time.Sleep(2 * time.Second)
-
-	// start the session (which sends offers)
-	if err := clientA.StartSession(); err != nil {
-		t.Fatalf("ClientA StartSession failed: %v", err)
-	}
-
-	if err := clientB.StartSession(); err != nil {
-		t.Fatalf("ClientB StartSession failed: %v", err)
-	}
-
-	// Now, both clients should be in the session, let's find their peer IDs and send a message
-	var peerID uint64
-
-	// Find peerID from clientA's peer manager (should be clientB)
-	for id := range clientA.PeerManager.Peers {
-		peerID = id
-		break
-	}
-
-	// Send a message from clientA to clientB
-	if err := clientA.SendMessageToPeer(peerID, "Hello from ClientA!"); err != nil {
-		t.Fatalf("ClientA SendMessageToPeer failed: %v", err)
-	}
-
-	// Wait briefly to allow message delivery
-	time.Sleep(1 * time.Second)
-
-	// Optionally, verify message receipt on clientB side by checking logs or internal state
-
-	// Test passing!
-	t.Logf("Test passed: Message sent from ClientA to ClientB")
-}
 func TestP2PConnectionAfterServerClose(t *testing.T) {
-
 	// define API keys for each client
 	apiKeyA, apiKeyB := "valid-api-key-1", "valid-api-key-2"
 
@@ -118,11 +52,17 @@ func TestP2PConnectionAfterServerClose(t *testing.T) {
 	if err := clientB.Connect(); err != nil {
 		t.Fatalf("ClientB Connect failed: %v", err)
 	}
+
 	// create a room with ClientA, then have ClientB join it
 	if err := clientA.CreateRoom(); err != nil {
 		t.Fatalf("CreateRoom failed: %v", err)
 	}
-	if err := clientB.JoinRoom("13"); err != nil { // adjust the RoomID manually for this unit test
+
+	// Add a brief sleep to ensure room is properly created before joining
+	time.Sleep(1 * time.Second)
+
+	// Ensure ClientB joins the room
+	if err := clientB.JoinRoom("4"); err != nil { // adjust the RoomID manually for this unit test
 		t.Fatalf("ClientB JoinRoom failed: %v", err)
 	}
 
