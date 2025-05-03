@@ -76,6 +76,16 @@ func NewClient() *Client {
 	}
 }
 
+// for testing purposes
+func (c *Client) SetServerURL(url string) {
+	c.ServerURL = url
+}
+
+// for testing purposes
+func (c *Client) SetApiKey(key string) {
+	c.ApiKey = key
+}
+
 // performs initial http authentication with api key to get session key and userid
 func (c *Client) PreAuthenticate() error {
 	url := fmt.Sprintf("http://localhost:%s/auth", getEnv("WS_PORT", "8080")) // this builds the auth url
@@ -281,7 +291,7 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// sends a signaling message to a specific target user.
+// sends a signaling message to a specific target user
 func (c *Client) SendSignalingMessage(targetID uint64, msgType string, sdpOrCandidate string) error {
 	msg := Message{
 		Type:   msgType,

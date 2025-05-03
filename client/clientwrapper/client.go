@@ -88,3 +88,13 @@ func (w *Wrapper) Close() {
 	w.Client.Close()
 	w.PeerManager.CloseAll()
 }
+
+// for testing
+func (w *Wrapper) SetServerURL(url string) {
+	w.Client.SetServerURL(url)
+}
+
+// for testing
+func (w *Wrapper) SetApiKey(key string) {
+	w.Client.SetApiKey(key)
+}

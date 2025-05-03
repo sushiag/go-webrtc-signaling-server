@@ -252,7 +252,7 @@ func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandl
 			webrtc.PeerConnectionStateClosed:
 
 			log.Printf("[PEER] Connection to %d is %s. Cleaning up.", msg.Sender, state)
-			peer.cancel() // ✅ Correct usage
+			peer.cancel()
 			pm.RemovePeer(msg.Sender)
 			go pm.CheckAllConnectedAndDisconnect(client)
 		}
@@ -423,6 +423,17 @@ func (pm *PeerManager) CloseAll() {
 		delete(pm.Peers, id)
 		log.Printf("[PEER] Closed connection to peer %d", id)
 	}
+}
+
+func (pm *PeerManager) GetPeerIDs() []uint64 {
+	pm.Mutex.Lock()
+	defer pm.Mutex.Unlock()
+
+	ids := make([]uint64, 0, len(pm.Peers))
+	for id := range pm.Peers {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (pm *PeerManager) CheckAllConnectedAndDisconnect(client *clienthandle.Client) {

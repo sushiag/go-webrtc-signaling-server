@@ -29,7 +29,7 @@ func TestFullClientWorkflow(t *testing.T) {
 		t.Fatalf("StartSession failed: %v", err)
 	}
 
-	peerID := uint64(12345)
+	peerID := uint64(1)
 	err := w.SendMessageToPeer(peerID, "Hello from test!")
 	if err != nil {
 		t.Logf("SendMessageToPeer failed (likely due to mock peer ID): %v", err)
