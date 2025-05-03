@@ -11,7 +11,8 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/server/wsserver"
 )
 
-func startTestServer() *http.Server {
+// TODO: Move this to the /server library
+func startTestServer(port string) (*http.Server, string) {
 	log.Println("running on: 127.0.0.1:8080")
 	manager := wsserver.NewWebSocketManager()
 
@@ -33,11 +34,20 @@ func startTestServer() *http.Server {
 	}()
 
 	time.Sleep(100 * time.Millisecond)
+	server_url := "ws://127.0.0.1:8080/ws"
 
-	return server
+	return server, server_url
 }
-func TestEndToEndSignaling(t *testing.T) {
-	server := startTestServer()
+
+// EXAMPLE
+func TestEndToEndSignalingThreeClients(t *testing.T) {
+	// ...
+}
+
+func TestEndToEndSignalingTwoClients(t *testing.T) {
+	// if you set the port to `0`, the OS will automatically give you an open port
+	server, server_url := startTestServer("127.0.0.1:0")
+
 	defer server.Close() // ensure server is closed after the test
 
 	// pre-set API keys only for testing
@@ -52,8 +62,8 @@ func TestEndToEndSignaling(t *testing.T) {
 	clientB.Client.ApiKey = apiKeyB
 
 	// both clients to connect to the signaling server
-	clientA.SetServerURL("ws://localhost:8080/ws")
-	clientB.SetServerURL("ws://localhost:8080/ws")
+	clientA.SetServerURL(server_url)
+	clientB.SetServerURL(server_url)
 
 	err := clientA.Connect()
 	assert.NoError(t, err, "Client A failed to connect")
