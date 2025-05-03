@@ -506,7 +506,7 @@ func (wm *WebSocketManager) disconnectUser(userID uint64) {
 		}
 	}
 
-	// 🚀 also free API key
+	// released  apikey from the serveer
 	for apiKey, id := range wm.apiKeyToUserID {
 		if id == userID {
 			delete(wm.apiKeyToUserID, apiKey)
