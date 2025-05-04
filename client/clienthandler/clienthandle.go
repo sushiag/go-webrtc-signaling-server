@@ -68,11 +68,11 @@ func init() {
 }
 
 // this creates and returns a new client default config
-func NewClient() *Client {
+func NewClient(serverUrl string) *Client {
 	return &Client{
-		ServerURL: fmt.Sprintf("ws://localhost:%s/ws", getEnv("WS_PORT", "8080")), // constructs websocket url for the .env
-		ApiKey:    os.Getenv("API_KEY"),                                           // gets api key from .env
-		doneCh:    make(chan struct{}),                                            // initializes donechl
+		ServerURL: serverUrl,
+		ApiKey:    os.Getenv("API_KEY"), // gets api key from .env
+		doneCh:    make(chan struct{}),  // initializes donechl
 	}
 }
 
@@ -88,11 +88,11 @@ func (c *Client) SetApiKey(key string) {
 
 // performs initial http authentication with api key to get session key and userid
 func (c *Client) PreAuthenticate() error {
-	url := fmt.Sprintf("http://localhost:%s/auth", getEnv("WS_PORT", "8080")) // this builds the auth url
-	payload := map[string]string{"apikey": c.ApiKey}                          // prepares the request body
-	body, _ := json.Marshal(payload)                                          // encodes to json
+	payload := map[string]string{"apikey": c.ApiKey} // prepares the request body
+	body, _ := json.Marshal(payload)                 // encodes to json
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body)) // sends request
+	authUrl := fmt.Sprintf("http://%s/auth", c.ServerURL)
+	resp, err := http.Post(authUrl, "application/json", bytes.NewBuffer(body)) // sends request
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,8 @@ func (c *Client) Init() error {
 	headers := http.Header{}
 	headers.Set("X-Api-Key", c.ApiKey) // set the auth header
 
-	conn, _, err := websocket.DefaultDialer.Dial(c.ServerURL, headers)
+	wsEndpoint := fmt.Sprintf("ws://%s/ws", c.ServerURL)
+	conn, _, err := websocket.DefaultDialer.Dial(wsEndpoint, headers)
 	if err != nil {
 		return fmt.Errorf("[CLIENT SIGNALING] websocket connection failed: %v", err)
 	}
@@ -282,13 +283,6 @@ func (c *Client) IsWebSocketClosed() bool {
 		return true
 	}
 	return c.Conn.CloseHandler() != nil
-}
-
-func getEnv(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return fallback
 }
 
 // sends a signaling message to a specific target user

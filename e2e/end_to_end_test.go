@@ -1,59 +1,28 @@
 package e2e_test
 
 import (
-	"log"
-	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	client "github.com/sushiag/go-webrtc-signaling-server/client/clientwrapper"
-	"github.com/sushiag/go-webrtc-signaling-server/server/wsserver"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server"
 )
 
-func startTestServer() *http.Server {
-	log.Println("running on: 127.0.0.1:8080")
-	manager := wsserver.NewWebSocketManager()
-
-	manager.SetValidApiKeys(map[string]bool{
-		"valid-api-key-1": true,
-		"valid-api-key-2": true,
-	})
-	mux := http.NewServeMux()
-	mux.HandleFunc("/auth", manager.AuthHandler)
-	mux.HandleFunc("/ws", manager.Handler)
-
-	server := &http.Server{
-		Addr:    "127.0.0.1:8080",
-		Handler: mux,
-	}
-
-	go func() {
-		_ = server.ListenAndServe()
-	}()
-
-	time.Sleep(100 * time.Millisecond)
-
-	return server
-}
 func TestEndToEndSignaling(t *testing.T) {
-	server := startTestServer()
+	server, serverUrl := server.StartServer("0")
 	defer server.Close() // ensure server is closed after the test
 
 	// pre-set API keys only for testing
 	apiKeyA, apiKeyB := "valid-api-key-1", "valid-api-key-2"
 
 	// create two client instances
-	clientA := client.NewClient()
-	clientB := client.NewClient()
+	clientA := client.NewClient(serverUrl)
+	clientB := client.NewClient(serverUrl)
 
 	// pre-set apikeys for testing directly to each client
 	clientA.Client.ApiKey = apiKeyA
 	clientB.Client.ApiKey = apiKeyB
-
-	// both clients to connect to the signaling server
-	clientA.SetServerURL("ws://localhost:8080/ws")
-	clientB.SetServerURL("ws://localhost:8080/ws")
 
 	err := clientA.Connect()
 	assert.NoError(t, err, "Client A failed to connect")

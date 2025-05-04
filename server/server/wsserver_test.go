@@ -1,4 +1,4 @@
-package wsserver
+package server
 
 import (
 	"bytes"

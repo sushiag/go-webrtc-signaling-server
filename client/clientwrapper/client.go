@@ -14,8 +14,8 @@ type Wrapper struct {
 }
 
 // creates a new wrapper that sets up both signaling and WebRTC handling
-func NewClient() *Wrapper {
-	client := clienthandle.NewClient()
+func NewClient(wsEndpoint string) *Wrapper {
+	client := clienthandle.NewClient(wsEndpoint)
 	pm := webrtchandler.NewPeerManager()
 
 	w := &Wrapper{
