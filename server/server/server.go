@@ -1,9 +1,13 @@
 package server
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -582,4 +586,75 @@ func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
 			failures = 0
 		}
 	}
+}
+
+func StartServer(port string) (*http.Server, string) {
+
+	if port == "0" {
+		listener, err := net.Listen("tcp", ":0")
+		if err != nil {
+			log.Fatalf("Error starting server: %v", err)
+		}
+		port = fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port)
+	}
+
+	// the server address and port
+	addr := os.Getenv("SERVER_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1"
+	}
+
+	// Combine the address and port
+	fullAddr := addr + ":" + port
+
+	apiKeyPath := os.Getenv("APIKEY_PATH")
+	if apiKeyPath == "" {
+		apiKeyPath = "apikeys.txt"
+	}
+
+	log.Printf("[SERVER] Starting on %s\n", fullAddr)
+
+	manager := NewWebSocketManager()
+
+	apiKeys, err := LoadValidApiKeys(apiKeyPath)
+	if err != nil {
+		log.Printf("[SERVER] Failed to load API keys: %v", err)
+	}
+	manager.SetValidApiKeys(apiKeys)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", manager.AuthHandler)
+	mux.HandleFunc("/ws", manager.Handler)
+
+	server := &http.Server{
+		Addr:    fullAddr,
+		Handler: mux,
+	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("[SERVER] Error: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	wsURL := "ws://" + fullAddr + "/ws"
+	return server, wsURL
+}
+
+// LoadValidApiKeys loads API keys from a file
+func LoadValidApiKeys(path string) (map[string]bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("could not open file: %v", err)
+	}
+	defer file.Close()
+
+	keys := make(map[string]bool)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		keys[scanner.Text()] = true
+	}
+	return keys, scanner.Err()
 }
