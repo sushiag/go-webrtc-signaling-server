@@ -4,7 +4,7 @@ import (
 	"log"
 
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
-	"github.com/sushiag/go-webrtc-signaling-server/client/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 type Wrapper struct {

@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	clienthandle "github.com/sushiag/go-webrtc-signaling-server/client/clienthandler"
-	"github.com/sushiag/go-webrtc-signaling-server/client/webrtchandler"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 	}
 	wsEndpoint := fmt.Sprintf("ws://localhost:%s/ws", wsPort)
 
-	client := clienthandle.NewClient(wsEndpoint)
+	client := websocket.NewClient(wsEndpoint)
 
 	if err := client.PreAuthenticate(); err != nil {
 		log.Fatal("[CLIENT] Authentication Failed:", err)
@@ -35,8 +35,8 @@ func main() {
 	}
 	defer client.Close()
 
-	peerManager := webrtchandler.NewPeerManager()
-	client.SetMessageHandler(func(msg clienthandle.Message) {
+	peerManager := webrtc.NewPeerManager()
+	client.SetMessageHandler(func(msg websocket.Message) {
 		peerManager.HandleSignalingMessage(msg, client)
 	})
 
@@ -53,7 +53,7 @@ func main() {
 	}
 
 	if *disconnectfromserver {
-		startMsg := clienthandle.Message{
+		startMsg := websocket.Message{
 			Type:   "disconnect-from-server",
 			RoomID: client.RoomID,
 			Sender: client.UserID,
