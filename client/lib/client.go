@@ -3,20 +3,20 @@ package client
 import (
 	"log"
 
-	"github.com/sushiag/go-webrtc-signaling-server/client/webrtchandler"
-	websocket "github.com/sushiag/go-webrtc-signaling-server/client/websocketr"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
+	"github.com/sushiag/go-webrtc-signaling-server/client/websocket"
 )
 
 type Wrapper struct {
 	Client      *websocket.Client
-	PeerManager *webrtchandler.PeerManager
+	PeerManager *webrtc.PeerManager
 	IsHost      bool
 }
 
 // creates a new wrapper that sets up both signaling and WebRTC handling
 func NewClient(wsEndpoint string) *Wrapper {
 	client := websocket.NewClient(wsEndpoint)
-	pm := webrtchandler.NewPeerManager()
+	pm := webrtc.NewPeerManager()
 
 	w := &Wrapper{
 		Client:      client,

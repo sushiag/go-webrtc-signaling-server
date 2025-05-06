@@ -1,8 +1,9 @@
 package test
 
 import (
-	"go-webrtc-signaling-server/client/lib/webrtc"
 	"testing"
+
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/assert"
@@ -45,8 +46,8 @@ func TestPeerManager_HandleSignalingMessage(t *testing.T) {
 	client := &MockClient{UserID: 1}
 
 	// Create a signaling message
-	message := websocketr.Message{
-		Type:   websocketr.MessageTypeOffer,
+	message := websocket.Message{
+		Type:   websocket.MessageTypeOffer,
 		Sender: 2,
 		Target: 1,
 		SDP:    "sdpdata",
@@ -67,8 +68,8 @@ func TestPeerManager_HandleOffer(t *testing.T) {
 	client := &MockClient{UserID: 1}
 
 	// Simulate receiving an offer
-	offerMessage := websocketr.Message{
-		Type:   websocketr.MessageTypeOffer,
+	offerMessage := websocket.Message{
+		Type:   websocket.MessageTypeOffer,
 		Sender: 2,
 		Target: 1,
 		SDP:    "sdpdata",
@@ -102,7 +103,7 @@ func TestPeerManager_SendDataToPeer(t *testing.T) {
 	peerManager := webrtc.NewPeerManager()
 
 	// Create a mock client
-	client := &MockClient{UserID: 1}
+	websocket := &MockClient{UserID: 1}
 
 	// Simulate adding a peer with a DataChannel
 	peerID := uint64(2)
