@@ -187,12 +187,18 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *websocket.Clien
 		log.Printf("Connection state with %d has changed: %s", peerID, state)
 
 		switch state {
+		case webrtc.PeerConnectionStateConnected:
+			peer.mutex.Lock()
+			peer.isConnected = true
+			peer.mutex.Unlock()
+			go pm.CheckAllConnectedAndDisconnect(client)
+
 		case webrtc.PeerConnectionStateDisconnected,
 			webrtc.PeerConnectionStateFailed,
 			webrtc.PeerConnectionStateClosed:
 
 			log.Printf("[PEER] Connection to %d is %s. Cleaning up.", peerID, state)
-			peer.cancel() // cancels the send loop
+			peer.cancel()
 			pm.RemovePeer(peerID)
 			go pm.CheckAllConnectedAndDisconnect(client)
 		}
@@ -439,16 +445,31 @@ func (pm *PeerManager) CheckAllConnectedAndDisconnect(client *websocket.Client) 
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
 
+	allConnected := true
+	var minID uint64 = ^uint64(0) // max uint64
+
 	for _, p := range pm.Peers {
 		p.mutex.Lock()
 		connected := p.isConnected
-		p.mutex.Unlock()
-
 		if !connected {
-			return // Not all peers are connected yet
+			allConnected = false
 		}
+		if p.ID < minID {
+			minID = p.ID
+		}
+		p.mutex.Unlock()
+	}
+
+	if !allConnected {
+		return
 	}
 
 	log.Println("[SIGNALING] All peers connected. Closing signaling client for full P2P.")
 	client.Close()
+
+	// Elect a new host if needed
+	if client.UserID == minID {
+		log.Println("[HOST] This client is now the new host.")
+		// Optionally send a broadcast message or set a flag
+	}
 }

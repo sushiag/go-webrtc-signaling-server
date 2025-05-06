@@ -83,6 +83,11 @@ func (cw *Wrapper) CloseServer() {
 	}
 }
 
+func (w *Wrapper) PromoteToHost() {
+	log.Println("[WRAPPER] Promoted to host.")
+	w.IsHost = true
+}
+
 // close cleanly shuts down all connections and peer sessions
 func (w *Wrapper) Close() {
 	w.Client.Close()
