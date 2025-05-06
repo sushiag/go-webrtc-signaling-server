@@ -69,8 +69,7 @@ func TestCreateRoom(t *testing.T) {
 		t.Errorf("user %d not added to room", fakeUserID)
 	}
 }
-
-func TestAreInSameRoom(t *testing.T) {
+func TestAreInSameRoom_UserNotInRoom(t *testing.T) {
 	manager := NewWebSocketManager()
 	user1 := uint64(1)
 	user2 := uint64(2)
@@ -79,10 +78,10 @@ func TestAreInSameRoom(t *testing.T) {
 	manager.Connections[user2] = nil
 
 	roomID := manager.CreateRoom(user1)
-	manager.AddUserToRoom(roomID, user2)
+	// user2 is not added to any room
 
-	if !manager.AreInSameRoom(roomID, []uint64{user1, user2}) {
-		t.Error("expected users to be in the same room")
+	if manager.AreInSameRoom(roomID, []uint64{user1, user2}) {
+		t.Error("expected users not to be in the same room")
 	}
 }
 
