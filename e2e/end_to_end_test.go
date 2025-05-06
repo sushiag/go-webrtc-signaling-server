@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	client "github.com/sushiag/go-webrtc-signaling-server/client/lib"
-	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
+	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
 )
 
 func TestEndToEndSignaling(t *testing.T) {

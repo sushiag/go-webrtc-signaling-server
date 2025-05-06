@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/sushiag/go-webrtc-signaling-server/server/server"
+	"github.com/sushiag/go-webrtc-signaling-server/lib/server/server"
 )
 
 func main() {
