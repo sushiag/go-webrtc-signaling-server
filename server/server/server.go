@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -538,7 +539,7 @@ func (wm *WebSocketManager) HandleDisconnect(msg Message) {
 	// remove from JoinOrder
 	for i, id := range room.JoinOrder {
 		if id == userID {
-			room.JoinOrder = append(room.JoinOrder[:i], room.JoinOrder[i+1:]...)
+			room.JoinOrder = slices.Delete(room.JoinOrder, i, i+1)
 			break
 		}
 	}
@@ -589,30 +590,28 @@ func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
 }
 
 func StartServer(port string) (*http.Server, string) {
-
-	if port == "0" {
-		listener, err := net.Listen("tcp", ":0")
-		if err != nil {
-			log.Fatalf("Error starting server: %v", err)
-		}
-		port = fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port)
-	}
-
 	// the server address and port
-	addr := os.Getenv("SERVER_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1"
+	host := os.Getenv("SERVER_HOST")
+	if host == "" {
+		host = "127.0.0.1"
 	}
 
 	// Combine the address and port
-	fullAddr := addr + ":" + port
+	serverUrl := fmt.Sprintf("%s:%s", host, port)
+
+	listener, err := net.Listen("tcp", serverUrl)
+	if err != nil {
+		log.Fatalf("Error starting server: %v", err)
+	}
+
+	// update the URL with the assigned port
+	serverUrl = listener.Addr().String()
+	log.Printf("[SERVER] Starting on %s\n", serverUrl)
 
 	apiKeyPath := os.Getenv("APIKEY_PATH")
 	if apiKeyPath == "" {
 		apiKeyPath = "apikeys.txt"
 	}
-
-	log.Printf("[SERVER] Starting on %s\n", fullAddr)
 
 	manager := NewWebSocketManager()
 
@@ -627,20 +626,19 @@ func StartServer(port string) (*http.Server, string) {
 	mux.HandleFunc("/ws", manager.Handler)
 
 	server := &http.Server{
-		Addr:    fullAddr,
+		Addr:    serverUrl,
 		Handler: mux,
 	}
 
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Printf("[SERVER] Error: %v", err)
 		}
 	}()
 
 	time.Sleep(100 * time.Millisecond)
 
-	wsURL := "ws://" + fullAddr + "/ws"
-	return server, wsURL
+	return server, serverUrl
 }
 
 // LoadValidApiKeys loads API keys from a file

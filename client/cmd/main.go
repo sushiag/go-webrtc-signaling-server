@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -17,7 +18,13 @@ func main() {
 
 	flag.Parse()
 
-	client := clienthandle.NewClient()
+	wsPort := os.Getenv("WS_PORT")
+	if wsPort == "" {
+		wsPort = "ws://localhost:8080/ws"
+	}
+	wsEndpoint := fmt.Sprintf("ws://localhost:%s/ws", wsPort)
+
+	client := clienthandle.NewClient(wsEndpoint)
 
 	if err := client.PreAuthenticate(); err != nil {
 		log.Fatal("[CLIENT] Authentication Failed:", err)

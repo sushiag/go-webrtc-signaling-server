@@ -1,41 +1,19 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
 	"log"
-	"net/http"
-	"os"
 
-	wsserver "github.com/sushiag/go-webrtc-signaling-server/server/wsserver"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server"
 )
 
-// LoadValidApiKeys loads API keys from a file
-func LoadValidApiKeys(path string) (map[string]bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("could not open file: %v", err)
-	}
-	defer file.Close()
-
-	keys := make(map[string]bool)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		keys[scanner.Text()] = true
-	}
-	return keys, scanner.Err()
-}
-
 func main() {
-	wsManager := wsserver.NewWebSocketManager()
-	apiKeys, _ := LoadValidApiKeys("apikeys.txt")
-	wsManager.SetValidApiKeys(apiKeys)
+	server, wsURL := server.StartServer(":8080") // Pass bind address here
 
-	http.HandleFunc("/auth", wsManager.AuthHandler)
-	http.HandleFunc("/ws", wsManager.Handler)
+	log.Printf("[SERVER] WebSocket server started at %s", wsURL)
 
-	log.Println("[SERVER] WebSocket server listening on :8080")
-	if err := http.ListenAndServe("127.0.0.1:8080", nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
+	defer func() {
+		if err := server.Close(); err != nil {
+			log.Fatalf("[SERVER] Failed to stop the server: %v", err)
+		}
+	}()
 }

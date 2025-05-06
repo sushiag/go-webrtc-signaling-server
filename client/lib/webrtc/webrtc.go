@@ -1,4 +1,4 @@
-package webrtchandler
+package webrtc
 
 import (
 	"context"
@@ -6,9 +6,8 @@ import (
 	"log"
 	"sync"
 
-	clienthandle "github.com/sushiag/go-webrtc-signaling-server/client/clienthandler"
-
 	"github.com/pion/webrtc/v4"
+	websocket "github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 type Peer struct {
@@ -45,10 +44,10 @@ func NewPeerManager() *PeerManager {
 	}
 }
 
-func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *clienthandle.Client) {
+func (pm *PeerManager) HandleSignalingMessage(msg websocket.Message, client *websocket.Client) {
 
 	switch msg.Type {
-	case clienthandle.MessageTypePeerList:
+	case websocket.MessageTypePeerList:
 		for _, peerID := range msg.Users {
 			if peerID == client.UserID {
 				continue
@@ -59,25 +58,25 @@ func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *
 			}
 		}
 
-	case clienthandle.MessageTypeOffer:
+	case websocket.MessageTypeOffer:
 		log.Printf("[WEBRTC SIGNALING] Received offer from %d", msg.Sender)
 		if err := pm.HandleOffer(msg, client); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Handle offer error: %v", err)
 		}
 
-	case clienthandle.MessageTypeAnswer:
+	case websocket.MessageTypeAnswer:
 		log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
 		if err := pm.HandleAnswer(msg, client); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Handle answer error: %v", err)
 		}
 
-	case clienthandle.MessageTypeICECandidate:
+	case websocket.MessageTypeICECandidate:
 		log.Printf("[WEBRTC SIGNALING] Received ICE candidate from %d", msg.Sender)
 		if err := pm.HandleICECandidate(msg); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Failed to handle candidate from %d: %v", msg.Sender, err)
 		}
 
-	case clienthandle.MessageTypeSendMessage:
+	case websocket.MessageTypeSendMessage:
 		if msg.Text == "" {
 			log.Printf("Empty message received from %d, ignoring", msg.Sender)
 			return
@@ -89,7 +88,7 @@ func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *
 			log.Printf("Failed to send message to %d: %v", msg.Target, err)
 		}
 
-	case clienthandle.MessageTypeStart:
+	case websocket.MessageTypeStart:
 		log.Printf("[CLIENT SIGNALING] Received start from host %d. Initiating peer connections...", msg.Sender)
 
 		for peerID := range pm.Peers {
@@ -104,7 +103,7 @@ func (pm *PeerManager) HandleSignalingMessage(msg clienthandle.Message, client *
 	}
 }
 
-func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *clienthandle.Client) error {
+func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *websocket.Client) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
 		return fmt.Errorf("create peer connection: %w", err)
@@ -169,8 +168,8 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *clienthandle.Cl
 		candidateInit := c.ToJSON()
 		if peer.remoteDescriptionSet {
 			log.Printf("[SIGNALING] Sending ICE candidate immediately to %d", peerID)
-			err := client.Send(clienthandle.Message{
-				Type:      clienthandle.MessageTypeICECandidate,
+			err := client.Send(websocket.Message{
+				Type:      websocket.MessageTypeICECandidate,
 				Sender:    client.UserID,
 				Target:    peerID,
 				Candidate: candidateInit.Candidate,
@@ -208,14 +207,14 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *clienthandle.Cl
 	}
 	log.Printf("[SIGNALING] Sending offer to %d", peerID)
 
-	return client.Send(clienthandle.Message{
-		Type:   clienthandle.MessageTypeOffer,
+	return client.Send(websocket.Message{
+		Type:   websocket.MessageTypeOffer,
 		Target: peerID,
 		SDP:    offer.SDP,
 		Sender: client.UserID,
 	})
 }
-func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandle.Client) error {
+func (pm *PeerManager) HandleOffer(msg websocket.Message, client *websocket.Client) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
 		return err
@@ -273,8 +272,8 @@ func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandl
 		candidateInit := c.ToJSON()
 		if peer.remoteDescriptionSet {
 			log.Printf("[SIGNALING] Sending ICE candidate immediately to %d", msg.Sender)
-			err := client.Send(clienthandle.Message{
-				Type:      clienthandle.MessageTypeICECandidate,
+			err := client.Send(websocket.Message{
+				Type:      websocket.MessageTypeICECandidate,
 				Sender:    client.UserID,
 				Target:    msg.Sender,
 				Candidate: candidateInit.Candidate,
@@ -306,15 +305,15 @@ func (pm *PeerManager) HandleOffer(msg clienthandle.Message, client *clienthandl
 		return err
 	}
 
-	return client.Send(clienthandle.Message{
-		Type:   clienthandle.MessageTypeAnswer,
+	return client.Send(websocket.Message{
+		Type:   websocket.MessageTypeAnswer,
 		Target: msg.Sender,
 		SDP:    answer.SDP,
 		Sender: client.UserID,
 	})
 }
 
-func (pm *PeerManager) HandleAnswer(msg clienthandle.Message, client *clienthandle.Client) error {
+func (pm *PeerManager) HandleAnswer(msg websocket.Message, client *websocket.Client) error {
 	pm.Mutex.Lock()
 	peer, exists := pm.Peers[msg.Sender]
 	pm.Mutex.Unlock()
@@ -338,7 +337,7 @@ func (pm *PeerManager) HandleAnswer(msg clienthandle.Message, client *clienthand
 	return nil
 }
 
-func (pm *PeerManager) HandleICECandidate(msg clienthandle.Message) error {
+func (pm *PeerManager) HandleICECandidate(msg websocket.Message) error {
 	pm.Mutex.Lock()
 	peer, exists := pm.Peers[msg.Sender]
 	pm.Mutex.Unlock()
@@ -356,15 +355,15 @@ func (pm *PeerManager) HandleICECandidate(msg clienthandle.Message) error {
 func (pm *PeerManager) GracefulShutdown() {
 	fmt.Println("Gracefully shutting down signaling, but keeping P2P alive.")
 }
-func (p *Peer) OnRemoteDescriptionSet(client *clienthandle.Client) {
+func (p *Peer) OnRemoteDescriptionSet(client *websocket.Client) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	p.remoteDescriptionSet = true
 
 	for _, candidate := range p.bufferedICECandidates {
-		err := client.Send(clienthandle.Message{
-			Type:      clienthandle.MessageTypeICECandidate,
+		err := client.Send(websocket.Message{
+			Type:      websocket.MessageTypeICECandidate,
 			Sender:    client.UserID,
 			Target:    p.ID,
 			Candidate: candidate.Candidate,
@@ -436,7 +435,7 @@ func (pm *PeerManager) GetPeerIDs() []uint64 {
 	return ids
 }
 
-func (pm *PeerManager) CheckAllConnectedAndDisconnect(client *clienthandle.Client) {
+func (pm *PeerManager) CheckAllConnectedAndDisconnect(client *websocket.Client) {
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
 
