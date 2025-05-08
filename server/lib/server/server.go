@@ -480,14 +480,6 @@ func (wm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool 
 	}
 	return true
 }
-
-func (wm *WebSocketManager) maybeDeleteRoom(roomID uint64) {
-	if room, ok := wm.Rooms[roomID]; ok && len(room.Users) == 0 {
-		delete(wm.Rooms, roomID)
-		log.Printf("[WS] Room %d deleted because it is empty", roomID)
-	}
-}
-
 func (wm *WebSocketManager) disconnectUser(userID uint64) {
 	wm.mtx.Lock()
 	defer wm.mtx.Unlock()
