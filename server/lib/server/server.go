@@ -58,6 +58,7 @@ type WebSocketManager struct {
 	Connections     map[uint64]*websocket.Conn
 	Rooms           map[uint64]*Room
 	mtx             sync.RWMutex
+	writeLock       sync.Mutex
 	upgrader        websocket.Upgrader
 	validApiKeys    map[string]bool
 	apiKeyToUserID  map[string]uint64
@@ -79,6 +80,12 @@ func NewWebSocketManager() *WebSocketManager {
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
+}
+
+func (wsm *WebSocketManager) SafeWriteJSON(conn *websocket.Conn, v interface{}) error {
+	wsm.writeLock.Lock()
+	defer wsm.writeLock.Unlock()
+	return conn.WriteJSON(v)
 }
 
 func (wm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
@@ -472,6 +479,13 @@ func (wm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool 
 		}
 	}
 	return true
+}
+
+func (wm *WebSocketManager) maybeDeleteRoom(roomID uint64) {
+	if room, ok := wm.Rooms[roomID]; ok && len(room.Users) == 0 {
+		delete(wm.Rooms, roomID)
+		log.Printf("[WS] Room %d deleted because it is empty", roomID)
+	}
 }
 
 func (wm *WebSocketManager) disconnectUser(userID uint64) {
