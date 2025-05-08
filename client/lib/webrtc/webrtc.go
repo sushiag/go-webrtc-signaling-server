@@ -2,12 +2,13 @@ package webrtc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v4"
-	websocket "github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 type Peer struct {
@@ -25,90 +26,120 @@ type Peer struct {
 }
 
 type PeerManager struct {
-	Peers  map[uint64]*Peer
-	Config webrtc.Configuration
-	Mutex  sync.Mutex
+	UserID           uint64
+	Peers            map[uint64]*Peer
+	Config           webrtc.Configuration
+	Mutex            sync.Mutex
+	SignalingMessage SignalingMessage
+	onPeerCreated    func(*Peer, SignalingMessage)
 }
 
-func NewPeerManager() *PeerManager {
+type SignalingMessage struct {
+	Type      string   // type of message
+	Content   string   // content
+	RoomID    uint64   // room id
+	Sender    uint64   // sender user id
+	Target    uint64   // target user id
+	Candidate string   // ice-candidate string
+	SDP       string   // session description
+	Users     []uint64 // list of user ids
+	Text      string   // for send messages
+	Payload   Payload  // "file", "text", "image"
+}
+type Payload struct {
+	DataType string `json:"data_type"`
+	Data     []byte `json:"data"`
+}
+
+func NewPeerManager(userID uint64) *PeerManager {
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
 		},
 	}
 	return &PeerManager{
+		UserID: userID,
 		Peers:  make(map[uint64]*Peer),
 		Config: config,
 	}
 }
 
-func (pm *PeerManager) HandleSignalingMessage(msg websocket.Message, client *websocket.Client) {
-
+func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc func(SignalingMessage) error) {
 	switch msg.Type {
-	case websocket.MessageTypePeerList:
+	case "peer-list":
 		for _, peerID := range msg.Users {
-			if peerID == client.UserID {
+			if peerID == pm.UserID {
 				continue
 			}
 			log.Printf("[WEBRTC SIGNALING] Connecting to peer: %d", peerID)
-			if err := pm.CreateAndSendOffer(peerID, client); err != nil {
+			if err := pm.CreateAndSendOffer(peerID, sendFunc); err != nil {
 				log.Printf("[WEBRTC SIGNALING] Offer to %d failed: %v", peerID, err)
 			}
 		}
 
-	case websocket.MessageTypeOffer:
+	case "offer":
 		log.Printf("[WEBRTC SIGNALING] Received offer from %d", msg.Sender)
-		if err := pm.HandleOffer(msg, client); err != nil {
+		if err := pm.HandleOffer(msg, sendFunc); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Handle offer error: %v", err)
 		}
 
-	case websocket.MessageTypeAnswer:
+	case "answer":
 		log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
-		if err := pm.HandleAnswer(msg, client); err != nil {
+		if err := pm.HandleAnswer(msg, sendFunc); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Handle answer error: %v", err)
 		}
 
-	case websocket.MessageTypeICECandidate:
+	case "ice-candidate":
 		log.Printf("[WEBRTC SIGNALING] Received ICE candidate from %d", msg.Sender)
 		if err := pm.HandleICECandidate(msg); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Failed to handle candidate from %d: %v", msg.Sender, err)
 		}
 
-	case websocket.MessageTypeSendMessage:
-		if msg.Text == "" {
+	case "send-message":
+		if msg.Text == "" && msg.Payload.Data == nil {
 			log.Printf("Empty message received from %d, ignoring", msg.Sender)
 			return
 		}
-		log.Printf("[WEBRTC SIGNALING] Received message from %d to %d: %s", msg.Sender, msg.Target, msg.Text)
 
+		if msg.Text != "" {
+			log.Printf("[WEBRTC SIGNALING] Received text message from %d to %d: %s", msg.Sender, msg.Target, msg.Text)
+		}
+
+		if msg.Payload.Data != nil {
+			log.Printf("[WEBRTC SIGNALING] Received %s data from %d", msg.Payload.DataType, msg.Sender)
+			switch msg.Payload.DataType {
+			case "audio":
+				log.Printf("Received audio data, size: %d bytes", len(msg.Payload.Data))
+			case "video":
+				log.Printf("Received video data, size: %d bytes", len(msg.Payload.Data))
+			case "file":
+				log.Printf("Received file data, size: %d bytes", len(msg.Payload.Data))
+			default:
+				log.Printf("Received arbitrary data of type: %s, size: %d bytes", msg.Payload.DataType, len(msg.Payload.Data))
+			}
+		}
 		data := []byte(msg.Text)
 		if err := pm.SendDataToPeer(msg.Target, data); err != nil {
 			log.Printf("Failed to send message to %d: %v", msg.Target, err)
 		}
-
-	case websocket.MessageTypeStart:
-		log.Printf("[CLIENT SIGNALING] Received start from host %d. Initiating peer connections...", msg.Sender)
-
+	case "start-session":
+		log.Printf("[WEBRTC SIGNALING] Received start command. Initiating peer offers.")
 		for peerID := range pm.Peers {
-			if peerID == client.UserID {
+			if peerID == pm.UserID {
 				continue
 			}
-			err := pm.CreateAndSendOffer(peerID, client)
-			if err != nil {
-				log.Printf("Error sending offer to peer %d: %v", peerID, err)
+			if err := pm.CreateAndSendOffer(peerID, sendFunc); err != nil {
+				log.Printf("Offer to peer %d failed: %v", peerID, err)
 			}
 		}
 	}
 }
 
-func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *websocket.Client) error {
+func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(SignalingMessage) error) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
-		return fmt.Errorf("create peer connection: %w", err)
+		return err
 	}
-
 	dc, err := pc.CreateDataChannel("data", nil)
 	if err != nil {
 		return fmt.Errorf("create data channel: %w", err)
@@ -119,7 +150,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *websocket.Clien
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	sendChan := make(chan string, 10) // buffer optional
+	sendChan := make(chan string, 10)
 
 	peer := &Peer{
 		ID:          peerID,
@@ -130,27 +161,13 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *websocket.Clien
 		sendChan:    sendChan,
 	}
 
-	go func(p *Peer) {
-		for {
-			select {
-			case <-p.ctx.Done():
-				log.Printf("[SEND LOOP] Peer %d send loop stopping", p.ID)
-				return
-			case msg := <-p.sendChan:
-				if p.Connection.ConnectionState() != webrtc.PeerConnectionStateConnected {
-					log.Printf("[SEND LOOP] Skipping send to %d: connection not active", p.ID)
-					return
-				}
-				if err := p.DataChannel.SendText(msg); err != nil {
-					log.Printf("[SEND LOOP] Send error to %d: %v", p.ID, err)
-					return
-				}
-			}
-		}
-	}(peer)
+	go peer.handleSendLoop()
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Printf("[DATA] From %d: %s", peerID, string(msg.Data))
+		log.Printf("Received raw data: %v", msg.Data)
+		if msg.IsString {
+			log.Printf("As string: %s", string(msg.Data))
+		}
 	})
 
 	pm.Mutex.Lock()
@@ -161,66 +178,55 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, client *websocket.Clien
 		if c == nil {
 			return
 		}
-
 		peer.mutex.Lock()
 		defer peer.mutex.Unlock()
 
-		candidateInit := c.ToJSON()
-		if peer.remoteDescriptionSet {
-			log.Printf("[SIGNALING] Sending ICE candidate immediately to %d", peerID)
-			err := client.Send(websocket.Message{
-				Type:      websocket.MessageTypeICECandidate,
-				Sender:    client.UserID,
-				Target:    peerID,
-				Candidate: candidateInit.Candidate,
-			})
-			if err != nil {
-				log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", peerID, err)
-			}
-		} else {
-			log.Printf("[SIGNALING] Buffering ICE candidate for %d", peerID)
-			peer.bufferedICECandidates = append(peer.bufferedICECandidates, candidateInit)
+		init := c.ToJSON()
+		if err := sendFunc(SignalingMessage{
+			Type:      "ice-candidate",
+			Sender:    pm.UserID,
+			Target:    peerID,
+			Candidate: init.Candidate,
+		}); err != nil {
+			log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", peerID, err)
 		}
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("Connection state with %d has changed: %s", peerID, state)
-
+		log.Printf("Peer connection with %d changed to %s", peerID, state)
 		switch state {
 		case webrtc.PeerConnectionStateConnected:
 			peer.mutex.Lock()
 			peer.isConnected = true
 			peer.mutex.Unlock()
-			go pm.CheckAllConnectedAndDisconnect(client)
-
-		case webrtc.PeerConnectionStateDisconnected,
-			webrtc.PeerConnectionStateFailed,
-			webrtc.PeerConnectionStateClosed:
-
-			log.Printf("[PEER] Connection to %d is %s. Cleaning up.", peerID, state)
-			peer.cancel()
-			pm.RemovePeer(peerID)
-			go pm.CheckAllConnectedAndDisconnect(client)
+			log.Printf("[STATE] Peer %d connected successfully.", peerID)
+		case webrtc.PeerConnectionStateDisconnected:
+			log.Printf("[STATE] Peer %d disconnected.", peerID)
+		case webrtc.PeerConnectionStateFailed:
+			log.Printf("[STATE] Peer %d connection failed.", peerID)
+		case webrtc.PeerConnectionStateClosed:
+			log.Printf("[STATE] Peer %d connection closed.", peerID)
 		}
 	})
 
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {
-		return fmt.Errorf("create offer: %w", err)
+		return err
 	}
 	if err := pc.SetLocalDescription(offer); err != nil {
-		return fmt.Errorf("set local description: %w", err)
+		return err
 	}
 	log.Printf("[SIGNALING] Sending offer to %d", peerID)
 
-	return client.Send(websocket.Message{
-		Type:   websocket.MessageTypeOffer,
+	return sendFunc(SignalingMessage{
+		Type:   "offer",
+		Sender: pm.UserID,
 		Target: peerID,
 		SDP:    offer.SDP,
-		Sender: client.UserID,
 	})
 }
-func (pm *PeerManager) HandleOffer(msg websocket.Message, client *websocket.Client) error {
+
+func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
 		return err
@@ -245,12 +251,34 @@ func (pm *PeerManager) HandleOffer(msg websocket.Message, client *websocket.Clie
 			log.Printf("[DATA] Channel open with %d", msg.Sender)
 		})
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			log.Printf("[DATA] Received message: %s", string(msg.Data))
+			log.Printf("Received raw data: %v", msg.Data)
+			if msg.IsString {
+				log.Printf("As string: %s", string(msg.Data))
+			}
 		})
+	})
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		peer.mutex.Lock()
+		defer peer.mutex.Unlock()
+
+		init := c.ToJSON()
+		if peer.remoteDescriptionSet {
+			_ = sendFunc(SignalingMessage{
+				Type:      "ice-candidate",
+				Sender:    pm.UserID,
+				Target:    msg.Sender,
+				Candidate: init.Candidate,
+			})
+		} else {
+			peer.bufferedICECandidates = append(peer.bufferedICECandidates, init)
+		}
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("Connection state with %d has changed: %s", msg.Sender, state)
+		log.Printf("Connection with %d state changed to %s", msg.Sender, state)
 		switch state {
 		case webrtc.PeerConnectionStateDisconnected,
 			webrtc.PeerConnectionStateFailed,
@@ -259,7 +287,7 @@ func (pm *PeerManager) HandleOffer(msg websocket.Message, client *websocket.Clie
 			log.Printf("[PEER] Connection to %d is %s. Cleaning up.", msg.Sender, state)
 			peer.cancel()
 			pm.RemovePeer(msg.Sender)
-			go pm.CheckAllConnectedAndDisconnect(client)
+			go pm.CheckAllConnectedAndDisconnect(sendFunc)
 		}
 	})
 
@@ -267,41 +295,14 @@ func (pm *PeerManager) HandleOffer(msg websocket.Message, client *websocket.Clie
 	pm.Peers[msg.Sender] = peer
 	pm.Mutex.Unlock()
 
-	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil {
-			return
-		}
-
-		peer.mutex.Lock()
-		defer peer.mutex.Unlock()
-
-		candidateInit := c.ToJSON()
-		if peer.remoteDescriptionSet {
-			log.Printf("[SIGNALING] Sending ICE candidate immediately to %d", msg.Sender)
-			err := client.Send(websocket.Message{
-				Type:      websocket.MessageTypeICECandidate,
-				Sender:    client.UserID,
-				Target:    msg.Sender,
-				Candidate: candidateInit.Candidate,
-			})
-			if err != nil {
-				log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", msg.Sender, err)
-			}
-		} else {
-			log.Printf("[SIGNALING] Buffering ICE candidate for %d", msg.Sender)
-			peer.bufferedICECandidates = append(peer.bufferedICECandidates, candidateInit)
-		}
-	})
-
-	err = pc.SetRemoteDescription(webrtc.SessionDescription{
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  msg.SDP,
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 
-	peer.OnRemoteDescriptionSet(client)
+	peer.OnRemoteDescriptionSet(pm.UserID, sendFunc)
 
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
@@ -311,111 +312,135 @@ func (pm *PeerManager) HandleOffer(msg websocket.Message, client *websocket.Clie
 		return err
 	}
 
-	return client.Send(websocket.Message{
-		Type:   websocket.MessageTypeAnswer,
+	return sendFunc(SignalingMessage{
+		Type:   "answer",
+		Sender: pm.UserID,
 		Target: msg.Sender,
 		SDP:    answer.SDP,
-		Sender: client.UserID,
 	})
 }
 
-func (pm *PeerManager) HandleAnswer(msg websocket.Message, client *websocket.Client) error {
+func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
 	pm.Mutex.Lock()
-	peer, exists := pm.Peers[msg.Sender]
+	peer, ok := pm.Peers[msg.Sender]
 	pm.Mutex.Unlock()
 
-	if !exists {
+	if !ok {
 		return fmt.Errorf("peer %d not found", msg.Sender)
 	}
-
 	log.Printf("[SIGNALING] Setting remote description for answer from %d", msg.Sender)
 
-	err := peer.Connection.SetRemoteDescription(webrtc.SessionDescription{
+	if err := peer.Connection.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeAnswer,
 		SDP:  msg.SDP,
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 
-	peer.OnRemoteDescriptionSet(client)
-
+	peer.OnRemoteDescriptionSet(pm.UserID, sendFunc)
 	return nil
 }
 
-func (pm *PeerManager) HandleICECandidate(msg websocket.Message) error {
+func (pm *PeerManager) HandleICECandidate(msg SignalingMessage) error {
 	pm.Mutex.Lock()
-	peer, exists := pm.Peers[msg.Sender]
+	peer, ok := pm.Peers[msg.Sender]
 	pm.Mutex.Unlock()
 
-	if !exists {
-		return fmt.Errorf("peer %d not found", msg.Sender)
+	if !ok {
+		err := fmt.Errorf("peer %d not found", msg.Sender)
+		log.Println("[ICE] Error:", err)
+		return err
 	}
 
 	log.Printf("[ICE] Handling ICE candidate from peer %d", msg.Sender)
-	return peer.Connection.AddICECandidate(webrtc.ICECandidateInit{
-		Candidate: msg.Candidate,
-	})
+
+	err := peer.Connection.AddICECandidate(webrtc.ICECandidateInit{Candidate: msg.Candidate})
+	if err != nil {
+		log.Printf("[ICE] Failed to add ICE candidate from peer %d: %v", msg.Sender, err)
+	}
+	return err
 }
 
 func (pm *PeerManager) GracefulShutdown() {
 	fmt.Println("Gracefully shutting down signaling, but keeping P2P alive.")
 }
-func (p *Peer) OnRemoteDescriptionSet(client *websocket.Client) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+func (peer *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(SignalingMessage) error) {
+	peer.mutex.Lock()
+	defer peer.mutex.Unlock()
 
-	p.remoteDescriptionSet = true
-
-	for _, candidate := range p.bufferedICECandidates {
-		err := client.Send(websocket.Message{
-			Type:      websocket.MessageTypeICECandidate,
-			Sender:    client.UserID,
-			Target:    p.ID,
-			Candidate: candidate.Candidate,
+	peer.remoteDescriptionSet = true
+	for _, c := range peer.bufferedICECandidates {
+		_ = sendFunc(SignalingMessage{
+			Type:      "ice-candidate",
+			Sender:    senderID,
+			Target:    peer.ID,
+			Candidate: c.Candidate,
 		})
-		if err != nil {
-			log.Printf("[SIGNALING] Failed to flush buffered candidate to %d: %v", p.ID, err)
+	}
+	peer.bufferedICECandidates = nil
+}
+
+func (peer *Peer) handleSendLoop() {
+	for {
+		select {
+		case <-peer.ctx.Done():
+			return
+		case msg := <-peer.sendChan:
+			if peer.Connection.ConnectionState() == webrtc.PeerConnectionStateConnected {
+				_ = peer.DataChannel.SendText(msg)
+			}
 		}
 	}
-	p.bufferedICECandidates = nil
 }
 
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
+	pm.Mutex.Lock()
 	peer, ok := pm.Peers[peerID]
+	pm.Mutex.Unlock()
+
 	if !ok {
+		log.Printf("[SEND ERROR] Peer %d not found", peerID)
 		return fmt.Errorf("peer %d not found", peerID)
 	}
-
-	// Assuming you have a DataChannel for each peer
 	if peer.DataChannel == nil {
-		return fmt.Errorf("no DataChannel available for peer %d", peerID)
+		log.Printf("[SEND ERROR] Peer %d has no DataChannel", peerID)
+		return fmt.Errorf("peer %d has no DataChannel", peerID)
 	}
 
-	// Sending the data
-	err := peer.DataChannel.Send(data)
+	return peer.DataChannel.Send(data)
+}
+
+func (pm *PeerManager) SendPayloadToPeer(peerID uint64, payload Payload) error {
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to send data to peer %d: %v", peerID, err)
+		return err
 	}
+	return pm.SendDataToPeer(peerID, data)
+}
 
-	return nil
+func (pm *PeerManager) OnPeerCreated(f func(*Peer, SignalingMessage)) {
+	pm.onPeerCreated = f
 }
 
 func (pm *PeerManager) RemovePeer(peerID uint64) {
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
 
-	if peer, ok := pm.Peers[peerID]; ok {
-		log.Printf("[PEER] Removing peer %d", peerID)
-		if peer.Connection != nil {
-			peer.Connection.Close()
-		}
-		delete(pm.Peers, peerID)
-		log.Printf("[PEER] Removed peer %d", peerID)
-	} else {
-		log.Printf("[PEER] Tried to remove non-existent peer %d", peerID)
+	peer, ok := pm.Peers[peerID]
+	if !ok {
+		log.Printf("[REMOVE ERROR] Peer %d not found for removal", peerID)
+		return
 	}
+
+	// Perform any additional cleanup here (e.g., data channel closure)
+	log.Printf("[REMOVE] Initiating graceful shutdown for peer %d", peerID)
+	peer.cancel()
+	peer.Connection.Close()
+
+	delete(pm.Peers, peerID)
+	log.Printf("[PEER] Peer %d removed successfully", peerID)
 }
+
 func (pm *PeerManager) CloseAll() {
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
@@ -441,35 +466,54 @@ func (pm *PeerManager) GetPeerIDs() []uint64 {
 	return ids
 }
 
-func (pm *PeerManager) CheckAllConnectedAndDisconnect(client *websocket.Client) {
+func (pm *PeerManager) CheckAllConnectedAndDisconnect(sendFunc func(SignalingMessage) error) {
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
-
-	allConnected := true
-	var minID uint64 = ^uint64(0) // max uint64
 
 	for _, p := range pm.Peers {
 		p.mutex.Lock()
 		connected := p.isConnected
-		if !connected {
-			allConnected = false
-		}
-		if p.ID < minID {
-			minID = p.ID
-		}
 		p.mutex.Unlock()
-	}
 
-	if !allConnected {
-		return
+		if !connected {
+			return // Not all peers are connected yet
+		}
 	}
 
 	log.Println("[SIGNALING] All peers connected. Closing signaling client for full P2P.")
-	client.Close()
+	pm.Close()
+}
 
-	// Elect a new host if needed
-	if client.UserID == minID {
-		log.Println("[HOST] This client is now the new host.")
-		// Optionally send a broadcast message or set a flag
+func (pm *PeerManager) Close() {
+	pm.Mutex.Lock()
+	defer pm.Mutex.Unlock()
+
+	// Close all peer connections
+	for _, peer := range pm.Peers {
+		if peer.Connection != nil {
+			peer.Connection.Close()
+		}
+	}
+
+	// Any other cleanup you need
+	log.Println("[SIGNALING] PeerManager closed.")
+}
+
+func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		pm.Mutex.Lock()
+		peer, ok := pm.Peers[peerID]
+		pm.Mutex.Unlock()
+
+		if ok && peer.DataChannel != nil {
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
+		}
+
+		time.Sleep(50 * time.Millisecond)
 	}
 }

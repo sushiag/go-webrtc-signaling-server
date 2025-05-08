@@ -32,6 +32,11 @@ const (
 	MessageTypeSendMessage  = "send-message"
 )
 
+type Payload struct {
+	DataType string `json:"data_type"`
+	Data     []byte `json:"data"`
+}
+
 // defined struct 'Message' for websocket communication
 type Message struct {
 	Type      string   `json:"type"`                // type of message
@@ -43,6 +48,7 @@ type Message struct {
 	SDP       string   `json:"sdp,omitempty"`       // session description
 	Users     []uint64 `json:"users,omitempty"`     // list of user ids
 	Text      string   `json:"text,omitempty"`      // for send messages
+	Payload   Payload  `json:"Payload,omitempty"`   // for send messages
 }
 
 // defined struct client instance with connection and state data
@@ -254,10 +260,40 @@ func (c *Client) listen() {
 			case MessageTypeStart:
 				log.Printf("[PEER TO PEER] %d Disconnecting from server", msg.Sender)
 
+			case MessageTypeSendMessage:
+				if msg.Text == "" && msg.Payload.Data == nil {
+					log.Printf("Empty message received from %d, ignoring", msg.Sender)
+					break
+				}
+
+				if msg.Text != "" {
+					log.Printf("[WEBRTC SIGNALING] Received text message from %d to %d: %s", msg.Sender, msg.Target, msg.Text)
+				}
+
+				if msg.Payload.Data != nil {
+					log.Printf("[WEBRTC SIGNALING] Received %s data from %d", msg.Payload.DataType, msg.Sender)
+					switch msg.Payload.DataType {
+					case "audio":
+						log.Printf("Received audio data, size: %d bytes", len(msg.Payload.Data))
+					case "video":
+						log.Printf("Received video data, size: %d bytes", len(msg.Payload.Data))
+					case "file":
+						log.Printf("Received file data, size: %d bytes", len(msg.Payload.Data))
+					default:
+						log.Printf("Received arbitrary data of type: %s, size: %d bytes", msg.Payload.DataType, len(msg.Payload.Data))
+					}
+				}
+
+				// Example forwarding or custom handling logic
+				data := []byte(msg.Text)
+				if err := c.SendDataToPeer(msg.Target, data); err != nil {
+					log.Printf("Failed to send message to %d: %v", msg.Target, err)
+				}
+
 			case MessageTypeDisconnect:
 				log.Printf("[CLIENT SIGNALING] Disconnected by server: %s", msg.Content)
 				c.Close()
-				os.Exit(1) // optional: or trigger reconnect logic
+				os.Exit(1)
 			}
 
 			if c.onMessage != nil {
@@ -265,6 +301,16 @@ func (c *Client) listen() {
 			}
 		}
 	}
+}
+
+func (c *Client) SendDataToPeer(targetID uint64, data []byte) error {
+	return c.Send(Message{
+		Type:    MessageTypeSendMessage,
+		Target:  targetID,
+		RoomID:  c.RoomID,
+		Sender:  c.UserID,
+		Payload: Payload{DataType: "binary", Data: data},
+	})
 }
 
 func (c *Client) RequestPeerList() {

@@ -7,99 +7,112 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
-type Wrapper struct {
-	Client      *websocket.Client
+type Client struct {
+	Websocket   *websocket.Client
 	PeerManager *webrtc.PeerManager
 	IsHost      bool
 }
 
-// creates a new wrapper that sets up both signaling and WebRTC handling
-func NewClient(wsEndpoint string) *Wrapper {
-	client := websocket.NewClient(wsEndpoint)
-	pm := webrtc.NewPeerManager()
+// NewClient() creates a wrapper with WebSocket signaling (PeerManager initialized later).
+func NewClient(wsEndpoint string) *Client {
+	clientwebsocket := websocket.NewClient(wsEndpoint)
+	return &Client{
+		Websocket: clientwebsocket,
+	}
+}
 
-	w := &Wrapper{
-		Client:      client,
-		PeerManager: pm,
+// Connect() handles authentication, then sets up PeerManager and signaling message handler.
+func (w *Client) Connect() error {
+	if err := w.Websocket.PreAuthenticate(); err != nil {
+		log.Fatal("Failed to authenticate:", err)
 	}
 
-	client.SetMessageHandler(func(msg websocket.Message) {
-		// this aass all signaling messages to the PeerManager
-		pm.HandleSignalingMessage(msg, client)
+	w.PeerManager = webrtc.NewPeerManager(w.Websocket.UserID)
+
+	// message forwarding from webrtc to websocket
+	w.Websocket.SetMessageHandler(func(msg websocket.Message) {
+		signalingMsg := webrtc.SignalingMessage{
+			Type:      msg.Type,
+			Sender:    msg.Sender,
+			Target:    msg.Target,
+			SDP:       msg.SDP,
+			Candidate: msg.Candidate,
+			Text:      msg.Text,
+			Users:     msg.Users,
+			Payload:   webrtc.Payload{},
+		}
+		log.Printf("[Client] Incoming signaling message: %+v", signalingMsg)
+
+		// message forwarding from websocket to webrtc
+		w.PeerManager.HandleSignalingMessage(signalingMsg, func(m webrtc.SignalingMessage) error {
+			return w.Websocket.Send(websocket.Message{
+				Type:      m.Type,
+				Sender:    m.Sender,
+				Target:    m.Target,
+				SDP:       m.SDP,
+				Candidate: m.Candidate,
+				Text:      m.Text,
+				Users:     m.Users,
+				Payload:   websocket.Payload{},
+			})
+		})
 	})
 
-	return w
+	return w.Websocket.Init()
 }
 
-// this performs the authentication and WebSocket initialization.
-func (w *Wrapper) Connect() error {
-	if err := w.Client.PreAuthenticate(); err != nil {
-		return err
-	}
-	if err := w.Client.Init(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (w *Wrapper) CreateRoom() error {
+func (w *Client) CreateRoom() error {
 	w.IsHost = true
 	log.Println("[CLIENT] Set as host after creating room.")
-	return w.Client.Create()
+	return w.Websocket.Create()
 }
 
-// joins an existing room
-func (w *Wrapper) JoinRoom(roomID string) error {
-	// if the client is joining a room, they are no longer the host
+func (w *Client) JoinRoom(roomID string) error {
 	w.IsHost = false
-	return w.Client.JoinRoom(roomID)
+	return w.Websocket.JoinRoom(roomID)
 }
 
-// sends the start-session signal to kick of exchanigng
-func (w *Wrapper) StartSession() error {
-	return w.Client.StartSession()
+func (w *Client) StartSession() error {
+	return w.Websocket.StartSession()
 }
 
-// sends a string message over the WebRTC DataChannel to a specific peer
-func (w *Wrapper) SendMessageToPeer(peerID uint64, msg string) error {
-	return w.PeerManager.SendDataToPeer(peerID, []byte(msg))
+func (w *Client) SendMessageToPeer(peerID uint64, data string) error {
+	return w.PeerManager.SendDataToPeer(peerID, []byte(data))
 }
 
-// disconnects and removes a specific peer connection
-func (w *Wrapper) LeaveRoom(peerID uint64) {
+func (w *Client) LeaveRoom(peerID uint64) {
 	w.PeerManager.RemovePeer(peerID)
 }
 
-func (cw *Wrapper) CloseServer() {
-	// only allow the host to close the server and transition to P2P
-	if cw.IsHost {
-		if cw.PeerManager != nil && cw.Client != nil {
-			// disconnect all peers and transition to P2P
-			cw.PeerManager.CheckAllConnectedAndDisconnect(cw.Client)
+func (w *Client) CloseServer() {
+	if w.IsHost {
+		if w.PeerManager != nil && w.Websocket != nil {
+			w.PeerManager.CheckAllConnectedAndDisconnect(func(m webrtc.SignalingMessage) error {
+				return w.Websocket.Send(websocket.Message{
+					Type:      m.Type,
+					Sender:    m.Sender,
+					Target:    m.Target,
+					SDP:       m.SDP,
+					Candidate: m.Candidate,
+					Text:      m.Text,
+					Users:     m.Users,
+				})
+			})
 		}
 	} else {
-		// log or handle error if non-host tries to close the server
 		log.Println("Error: Non-host client cannot close the signaling server.")
 	}
 }
 
-func (w *Wrapper) PromoteToHost() {
-	log.Println("[WRAPPER] Promoted to host.")
-	w.IsHost = true
-}
-
-// close cleanly shuts down all connections and peer sessions
-func (w *Wrapper) Close() {
-	w.Client.Close()
+func (w *Client) Close() {
+	w.Websocket.Close()
 	w.PeerManager.CloseAll()
 }
 
-// for testing
-func (w *Wrapper) SetServerURL(url string) {
-	w.Client.SetServerURL(url)
+func (w *Client) SetServerURL(url string) {
+	w.Websocket.SetServerURL(url)
 }
 
-// for testing
-func (w *Wrapper) SetApiKey(key string) {
-	w.Client.SetApiKey(key)
+func (w *Client) SetApiKey(key string) {
+	w.Websocket.SetApiKey(key)
 }

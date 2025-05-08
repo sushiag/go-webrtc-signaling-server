@@ -21,8 +21,8 @@ func TestEndToEndSignaling(t *testing.T) {
 	clientB := client.NewClient(serverUrl)
 
 	// pre-set apikeys for testing directly to each client
-	clientA.Client.ApiKey = apiKeyA
-	clientB.Client.ApiKey = apiKeyB
+	clientA.Websocket.ApiKey = apiKeyA
+	clientB.Websocket.ApiKey = apiKeyB
 
 	err := clientA.Connect()
 	assert.NoError(t, err, "Client A failed to connect")
@@ -38,7 +38,7 @@ func TestEndToEndSignaling(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// client A sets the fixed RoomID
-	clientA.Client.RoomID = 1
+	clientA.Websocket.RoomID = 1
 	joinRoomID := "1" // fixed RoomID
 
 	// client B joins the room created by Client A
@@ -49,6 +49,9 @@ func TestEndToEndSignaling(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// host (ClientA) starts the session
+	err = clientA.StartSession()
+	assert.NoError(t, err, "Client A failed to start session")
+
 	err = clientA.StartSession()
 	assert.NoError(t, err, "Client A failed to start session")
 
@@ -90,10 +93,10 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	clientD := client.NewClient(serverUrl)
 
 	// pre-set apikeys for testing directly to each client
-	clientA.Client.ApiKey = apiKeyA
-	clientB.Client.ApiKey = apiKeyB
-	clientC.Client.ApiKey = apiKeyC
-	clientD.Client.ApiKey = apiKeyD
+	clientA.Websocket.ApiKey = apiKeyA
+	clientB.Websocket.ApiKey = apiKeyB
+	clientC.Websocket.ApiKey = apiKeyC
+	clientD.Websocket.ApiKey = apiKeyD
 
 	err := clientA.Connect()
 	assert.NoError(t, err, "Client A failed to connect")
@@ -114,7 +117,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// client A sets the fixed RoomID
-	clientA.Client.RoomID = 1
+	clientA.Websocket.RoomID = 1
 	joinRoomID := "1" // fixed RoomID
 
 	// client B joins the room created by Client A

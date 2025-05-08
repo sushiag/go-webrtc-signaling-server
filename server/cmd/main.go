@@ -7,12 +7,15 @@ import (
 )
 
 func main() {
-	server, wsURL := server.StartServer(":8080") // Pass bind address here
+	server, wsURL := server.StartServer("") // Correct address format
 
 	log.Printf("[SERVER] WebSocket server started at %s", wsURL)
+
 	defer func() {
 		if err := server.Close(); err != nil {
 			log.Fatalf("[SERVER] Failed to stop the server: %v", err)
 		}
 	}()
+
+	select {} // to keep running
 }
