@@ -283,8 +283,6 @@ func (c *Client) listen() {
 						log.Printf("Received arbitrary data of type: %s, size: %d bytes", msg.Payload.DataType, len(msg.Payload.Data))
 					}
 				}
-
-				// Example forwarding or custom handling logic
 				data := []byte(msg.Text)
 				if err := c.SendDataToPeer(msg.Target, data); err != nil {
 					log.Printf("Failed to send message to %d: %v", msg.Target, err)

@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -81,82 +82,62 @@ func TestEndToEndSignaling(t *testing.T) {
 
 func TestEndToEndSignalingFourUsers(t *testing.T) {
 	server, serverUrl := server.StartServer("0")
-	defer server.Close() // ensure server is closed after the test
+	defer server.Close()
 
-	// pre-set API keys only for testing
 	apiKeyA, apiKeyB, apiKeyC, apiKeyD := "valid-api-key-3", "valid-api-key-4", "key1", "key2"
 
-	// create two client instances
 	clientA := client.NewClient(serverUrl)
 	clientB := client.NewClient(serverUrl)
 	clientC := client.NewClient(serverUrl)
 	clientD := client.NewClient(serverUrl)
 
-	// pre-set apikeys for testing directly to each client
 	clientA.Websocket.ApiKey = apiKeyA
 	clientB.Websocket.ApiKey = apiKeyB
 	clientC.Websocket.ApiKey = apiKeyC
 	clientD.Websocket.ApiKey = apiKeyD
 
-	err := clientA.Connect()
-	assert.NoError(t, err, "Client A failed to connect")
+	clients := []*client.Client{clientA, clientB, clientC, clientD}
 
-	err = clientB.Connect()
-	assert.NoError(t, err, "Client B failed to connect")
+	for _, c := range clients {
+		err := c.Connect()
+		assert.NoError(t, err, "Client failed to connect")
+	}
 
-	err = clientC.Connect()
-	assert.NoError(t, err, "Client C failed to connect")
-
-	err = clientD.Connect()
-	assert.NoError(t, err, "Client D failed to connect.")
-	// client A creates a room
-	err = clientA.CreateRoom()
+	err := clientA.CreateRoom()
 	assert.NoError(t, err, "Client A failed to create room")
 
-	// timer for room creation is fully acknowledged before proceeding
 	time.Sleep(1 * time.Second)
 
-	// client A sets the fixed RoomID
 	clientA.Websocket.RoomID = 1
-	joinRoomID := "1" // fixed RoomID
+	joinRoomID := "1"
 
-	// client B joins the room created by Client A
-	err = clientB.JoinRoom(joinRoomID)
-	assert.NoError(t, err, "Client B failed to join room")
+	for _, c := range clients[1:] {
+		err := c.JoinRoom(joinRoomID)
+		assert.NoError(t, err, "Client failed to join room")
+	}
 
-	err = clientC.JoinRoom(joinRoomID)
-	assert.NoError(t, err, "Client C failed to join the room")
-
-	err = clientD.JoinRoom(joinRoomID)
-	assert.NoError(t, err, "Client D failed to join the room")
-
-	// wait for signaling to complete and establish peer connection
 	time.Sleep(2 * time.Second)
 
-	// host (ClientA) starts the session
 	err = clientA.StartSession()
 	assert.NoError(t, err, "Client A failed to start session")
 
-	// wait for peer connection to be fully established
 	time.Sleep(2 * time.Second)
 
-	// assert that both clients are connected and have valid peers
-	assert.NotNil(t, clientA.PeerManager.Peers, "Client A's peer manager is empty")
-	assert.NotNil(t, clientB.PeerManager.Peers, "Client B's peer manager is empty")
-
-	// send a test message from ClientA to ClientB
-	var peerID uint64
-	for id := range clientA.PeerManager.Peers {
-		peerID = id
-		break
+	for _, c := range clients {
+		assert.NotNil(t, c.PeerManager.Peers, "Client's peer manager is empty")
 	}
 
-	// ensure the peerID is valid and then send the message
-	assert.NotZero(t, peerID, "No valid peer found for Client A to send message")
+	for round := 1; round <= 5; round++ {
+		t.Logf("---- Round %d ----", round)
+		for _, sender := range clients {
+			for peerID := range sender.PeerManager.Peers {
+				message := "Round " + strconv.Itoa(round) + " from client " + strconv.FormatUint(sender.Websocket.UserID, 10)
+				err := sender.SendMessageToPeer(peerID, message)
+				assert.NoError(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 
-	err = clientA.SendMessageToPeer(peerID, "Hello from ClientA!")
-	assert.NoError(t, err, "Client A failed to send message to Client B")
-
-	// log success message
-	t.Logf("End-to-end signaling test passed: Clients connected, room created, sessions started, and message sent.")
+	t.Logf("All clients successfully exchanged messages for 5 rounds.")
 }

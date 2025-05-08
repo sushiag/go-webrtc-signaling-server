@@ -45,7 +45,7 @@ func (w *Client) Connect() error {
 
 		// message forwarding from websocket to webrtc
 		w.PeerManager.HandleSignalingMessage(signalingMsg, func(m webrtc.SignalingMessage) error {
-			return w.Websocket.Send(websocket.Message{
+			err := w.Websocket.Send(websocket.Message{
 				Type:      m.Type,
 				Sender:    m.Sender,
 				Target:    m.Target,
@@ -55,6 +55,10 @@ func (w *Client) Connect() error {
 				Users:     m.Users,
 				Payload:   websocket.Payload{},
 			})
+			if err != nil {
+				log.Printf("Failed to send signaling message: %v", err)
+			}
+			return err
 		})
 	})
 
