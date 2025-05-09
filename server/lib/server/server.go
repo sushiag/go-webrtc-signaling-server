@@ -54,15 +54,14 @@ type Room struct {
 	mu        sync.Mutex
 }
 
-// WebSocketManager handles connection and room management using sync.Map for thread-safe operations
 type WebSocketManager struct {
-	Connections     sync.Map // map[uint64]*websocket.Conn
-	Rooms           sync.Map // map[uint64]*Room
+	Connections     sync.Map
+	Rooms           sync.Map
 	validApiKeys    map[string]bool
-	apiKeyToUserID  sync.Map // map[string]uint64
+	apiKeyToUserID  sync.Map
 	nextUserID      uint64
 	nextRoomID      uint64
-	candidateBuffer sync.Map // map[uint64][]Message
+	candidateBuffer sync.Map
 	upgrader        websocket.Upgrader
 	mtx             sync.Mutex
 }
@@ -396,7 +395,7 @@ func (wm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 		Users:     make(map[uint64]*websocket.Conn),
 		ReadyMap:  make(map[uint64]bool),
 	})
-	room := roomInterface.(*Room) // Safe type assertion
+	room := roomInterface.(*Room) // ssafe type assertion
 
 	// Load the user's connection
 	connIface, ok := wm.Connections.Load(userID)
@@ -412,9 +411,9 @@ func (wm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 	room.mu.Lock()
 	defer room.mu.Unlock()
 
-	// Notify other users in the room that this user has joined
+	// Alert other users in the room that this user has joined
 	for uid, userConn := range room.Users {
-		if uid != userID { // Don't send to the user who just joined
+		if uid != userID {
 			if err := userConn.WriteJSON(Message{
 				Type:   TypePeerJoined,
 				RoomID: roomID,
