@@ -69,5 +69,5 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	t.Logf("All clients successfully exchanged messages for 5 rounds.")
+	t.Logf("All clients successfully exchanged messages for 2 rounds.")
 }

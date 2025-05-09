@@ -107,17 +107,8 @@ func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc fun
 
 		if msg.Payload.Data != nil {
 			log.Printf("[WEBRTC SIGNALING] Received %s data from %d", msg.Payload.DataType, msg.Sender)
-			switch msg.Payload.DataType {
-			case "audio":
-				log.Printf("Received audio data, size: %d bytes", len(msg.Payload.Data))
-			case "video":
-				log.Printf("Received video data, size: %d bytes", len(msg.Payload.Data))
-			case "file":
-				log.Printf("Received file data, size: %d bytes", len(msg.Payload.Data))
-			default:
-				log.Printf("Received arbitrary data of type: %s, size: %d bytes", msg.Payload.DataType, len(msg.Payload.Data))
-			}
 		}
+
 		data := []byte(msg.Text)
 		if err := pm.SendDataToPeer(msg.Target, data); err != nil {
 			log.Printf("Failed to send message to %d: %v", msg.Target, err)
@@ -392,7 +383,6 @@ func (peer *Peer) handleSendLoop() {
 		}
 	}
 }
-
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
 	pm.Mutex.Lock()
 	peer, ok := pm.Peers[peerID]
@@ -402,9 +392,17 @@ func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
 		log.Printf("[SEND ERROR] Peer %d not found", peerID)
 		return fmt.Errorf("peer %d not found", peerID)
 	}
+
+	// Wait until the data channel is available
 	if peer.DataChannel == nil {
 		log.Printf("[SEND ERROR] Peer %d has no DataChannel", peerID)
 		return fmt.Errorf("peer %d has no DataChannel", peerID)
+	}
+
+	// Make sure the DataChannel is open
+	if peer.DataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		log.Printf("[SEND ERROR] DataChannel for peer %d is not open", peerID)
+		return fmt.Errorf("data channel for peer %d is not open", peerID)
 	}
 
 	return peer.DataChannel.Send(data)
