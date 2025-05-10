@@ -10,7 +10,6 @@ import (
 type Client struct {
 	Websocket   *websocket.Client
 	PeerManager *webrtc.PeerManager
-	IsHost      bool
 }
 
 // NewClient() creates a wrapper with WebSocket signaling (PeerManager initialized later).
@@ -24,7 +23,7 @@ func NewClient(wsEndpoint string) *Client {
 // Connect() handles authentication, then sets up PeerManager and signaling message handler.
 func (w *Client) Connect() error {
 	if err := w.Websocket.PreAuthenticate(); err != nil {
-		log.Fatal("Failed to authenticate:", err)
+		log.Fatal("[CLIENT]Failed to authenticate:", err)
 	}
 
 	w.PeerManager = webrtc.NewPeerManager(w.Websocket.UserID)
@@ -56,7 +55,7 @@ func (w *Client) Connect() error {
 				Payload:   websocket.Payload{},
 			})
 			if err != nil {
-				log.Printf("Failed to send signaling message: %v", err)
+				log.Printf("[CLIENT] Failed to send signaling message: %v", err)
 			}
 			return err
 		})
@@ -66,13 +65,12 @@ func (w *Client) Connect() error {
 }
 
 func (w *Client) CreateRoom() error {
-	w.IsHost = true
-	log.Println("[CLIENT] Set as host after creating room.")
+	log.Println("[CLIENT] Creating room and assuming host role.")
 	return w.Websocket.Create()
 }
 
 func (w *Client) JoinRoom(roomID string) error {
-	w.IsHost = false
+	log.Println("[CLIENT] Joining room.")
 	return w.Websocket.JoinRoom(roomID)
 }
 
@@ -85,27 +83,10 @@ func (w *Client) SendMessageToPeer(peerID uint64, data string) error {
 }
 
 func (w *Client) LeaveRoom(peerID uint64) {
-	w.PeerManager.RemovePeer(peerID)
-}
-
-func (w *Client) CloseServer() {
-	if w.IsHost {
-		if w.PeerManager != nil && w.Websocket != nil {
-			w.PeerManager.CheckAllConnectedAndDisconnect(func(m webrtc.SignalingMessage) error {
-				return w.Websocket.Send(websocket.Message{
-					Type:      m.Type,
-					Sender:    m.Sender,
-					Target:    m.Target,
-					SDP:       m.SDP,
-					Candidate: m.Candidate,
-					Text:      m.Text,
-					Users:     m.Users,
-				})
-			})
-		}
-	} else {
-		log.Println("Error: Non-host client cannot close the signaling server.")
-	}
+	w.PeerManager.RemovePeer(peerID, func(msg webrtc.SignalingMessage) error {
+		log.Printf("[CLIENT] Removed peer with ID %d, signaling message: %+v", peerID, msg)
+		return nil
+	})
 }
 
 func (w *Client) Close() {

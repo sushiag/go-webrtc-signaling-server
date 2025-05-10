@@ -17,18 +17,18 @@ import (
 
 // message type for the readmessages
 const (
-	TypeCreateRoom  = "create-room"
-	TypeJoin        = "join-room"
-	TypeOffer       = "offer"
-	TypeAnswer      = "answer"
-	TypeICE         = "ice-candidate"
-	TypeDisconnect  = "disconnect"
-	TypeText        = "text"
-	TypePeerJoined  = "peer-joined"
-	TypeRoomCreated = "room-created"
-	TypePeerList    = "peer-list"
-	TypePeerReady   = "peer-ready"
-	TypeStart       = "start"
+	TypeCreateRoom   = "create-room"
+	TypeJoin         = "join-room"
+	TypeOffer        = "offer"
+	TypeAnswer       = "answer"
+	TypeICE          = "ice-candidate"
+	TypeDisconnect   = "disconnect"
+	TypeText         = "text"
+	TypePeerJoined   = "peer-joined"
+	TypeRoomCreated  = "room-created"
+	TypePeerList     = "peer-list"
+	TypePeerReady    = "peer-ready"
+	TypeStartSession = "start-session"
 )
 
 type Message struct {
@@ -185,7 +185,7 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 
 	// Cleanup on exit
 	wm.Connections.Delete(userID)
-	// conn.Close() commenting out for testing
+	conn.Close()
 
 	log.Printf("[WS] User %d disconnected", userID)
 }
@@ -300,7 +300,7 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 		case TypePeerList, "peer-list-request":
 			wm.sendPeerListToUser(msg.RoomID, userID)
 
-		case TypeStart:
+		case TypeStartSession:
 			log.Printf("[WS] Received 'start' from user %d in room %d", msg.Sender, msg.RoomID)
 
 			roomInterface, exists := wm.Rooms.Load(msg.RoomID)
@@ -325,9 +325,6 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 
 		case TypeText:
 			log.Printf("[WS] Text from %d: %s", userID, msg.Content)
-
-		case "start-session":
-			log.Printf("[WS] Received start-session from peer %d", userID)
 
 		default:
 			log.Printf("[WS] Unknown message type: %s", msg.Type)
@@ -583,7 +580,7 @@ func (wm *WebSocketManager) HandleDisconnect(msg Message) {
 }
 
 func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	failures := 0
@@ -648,7 +645,7 @@ func StartServer(port string) (*http.Server, string) {
 		}
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	return server, serverUrl
 }

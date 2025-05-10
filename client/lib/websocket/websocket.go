@@ -27,9 +27,9 @@ const (
 	MessageTypePeerJoined   = "peer-joined"
 	MessageTypePeerListReq  = "peer-list-request"
 	MessageTypePeerList     = "peer-list"
-	MessageTypeStart        = "start"
 	MessageTypeStartSession = "start-session" // for func StartSession to start p2p
 	MessageTypeSendMessage  = "send-message"
+	MessageTypeHostChanged  = "host-changed"
 )
 
 type Payload struct {
@@ -63,6 +63,7 @@ type Client struct {
 	doneCh     chan struct{}   // chanel for the signal connection closing
 	isClosed   bool            // closing when os exit
 	SendMutex  sync.Mutex      // concurrent writting to the websocket. safe thread
+	closeOnce  sync.Once       // close websocket connection
 }
 
 // to load the .env file once the package/module initializes
@@ -119,7 +120,7 @@ func (c *Client) PreAuthenticate() error {
 	return nil
 }
 
-// initializes the webscoekt connection and starts listening for message
+// initializes the websocket connection and starts listening for message
 func (c *Client) Init() error {
 	headers := http.Header{}
 	headers.Set("X-Api-Key", c.ApiKey) // set the auth header
@@ -137,9 +138,7 @@ func (c *Client) Init() error {
 }
 
 func (c *Client) Close() {
-	select {
-	case <-c.doneCh:
-	default:
+	c.closeOnce.Do(func() {
 		close(c.doneCh)
 		c.isClosed = true
 
@@ -150,7 +149,7 @@ func (c *Client) Close() {
 			c.SendMutex.Unlock()
 		}
 		log.Println("[CLIENT SIGNALING] Connection closed")
-	}
+	})
 }
 
 func (c *Client) Send(msg Message) error {
@@ -241,7 +240,7 @@ func (c *Client) listen() {
 
 			switch msg.Type {
 			case MessageTypePeerList:
-				log.Printf("[CLIENT] Peer list received for room %d", c.RoomID)
+				log.Printf("[CLIENT SIGNALING] Peer list received for room %d", c.RoomID)
 			case MessageTypeRoomCreated:
 				fmt.Printf("[CLIENT SIGNALING] \n Room created: %d\n Copy this Room ID and share it with a friend!\n\n", msg.RoomID)
 				c.RoomID = msg.RoomID
@@ -249,17 +248,27 @@ func (c *Client) listen() {
 				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
 
 			case MessageTypeRoomJoined:
-				log.Printf("[CLIENT] Successfully joined room: %d", msg.RoomID)
+				log.Printf("[CLIENT SIGNALING] Successfully joined room: %d", msg.RoomID)
 				c.RoomID = msg.RoomID
 				c.RequestPeerList() // request the peer list to connect to others in the room
 				log.Printf("[CLIENT SIGNALING] userID: %d | roomID: %d", c.UserID, c.RoomID)
 
 			case MessageTypePeerJoined:
-				log.Printf("[SIGNALING] Peer joined: %d", msg.Sender)
+				log.Printf("[CLIENT SIGNALING] Peer joined: %d", msg.Sender)
 
-			case MessageTypeStart:
-				log.Printf("[PEER TO PEER] %d Disconnecting from server", msg.Sender)
+			case MessageTypeStartSession:
+				log.Printf("[CLIENT SIGNALING] Received start-session. Telling PeerManager to initiate P2P…")
+				if c.onMessage != nil {
+					c.onMessage(msg)
+				}
+				c.LeaveServer()
+				return
 
+			case MessageTypeHostChanged:
+				log.Printf("[CLIENT SIGNALING] New host assigned: %d", msg.Sender)
+				if c.UserID == msg.Sender {
+					log.Println("[CLIENT SIGNALING] You are now the host.")
+				}
 			case MessageTypeSendMessage:
 				if msg.Text == "" && msg.Payload.Data == nil {
 					log.Printf("Empty message received from %d, ignoring", msg.Sender)
@@ -267,11 +276,11 @@ func (c *Client) listen() {
 				}
 
 				if msg.Text != "" {
-					log.Printf("[WEBRTC SIGNALING] Received text message from %d to %d: %s", msg.Sender, msg.Target, msg.Text)
+					log.Printf("[CLIENT SIGNALINGCLIENT SIGNALING] Received text message from %d to %d: %s", msg.Sender, msg.Target, msg.Text)
 				}
 
 				if msg.Payload.Data != nil {
-					log.Printf("[WEBRTC SIGNALING] Received %s data from %d", msg.Payload.DataType, msg.Sender)
+					log.Printf("[CLIENT SIGNALING] Received %s data from %d", msg.Payload.DataType, msg.Sender)
 					switch msg.Payload.DataType {
 					case "audio":
 						log.Printf("Received audio data, size: %d bytes", len(msg.Payload.Data))
@@ -316,10 +325,10 @@ func (c *Client) RequestPeerList() {
 		Type: MessageTypePeerListReq,
 	})
 	if err != nil {
-		log.Printf("[SIGNALING] Failed to request peer list: %v", err)
+		log.Printf("[CLIENT SIGNALING] Failed to request peer list: %v", err)
 		return
 	}
-	log.Println("[SIGNALING] Requested peer list")
+	log.Println("[CLIENT SIGNALING] Requested peer list")
 }
 
 func (c *Client) IsWebSocketClosed() bool {
@@ -351,4 +360,9 @@ func (c *Client) SendSignalingMessage(targetID uint64, msgType string, sdpOrCand
 	}
 
 	return c.Send(msg)
+}
+
+func (c *Client) LeaveServer() {
+	log.Println("[CLIENT SIGNALING] Leaving signaling server and switching to P2P")
+	c.Close()
 }

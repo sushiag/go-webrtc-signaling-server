@@ -3,6 +3,7 @@ package webrtc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -21,12 +22,14 @@ type Peer struct {
 
 	ctx         context.Context
 	cancel      context.CancelFunc
+	cancelOnce  sync.Once
 	sendChan    chan string
 	isConnected bool
 }
 
 type PeerManager struct {
 	UserID           uint64
+	HostID           uint64
 	Peers            map[uint64]*Peer
 	Config           webrtc.Configuration
 	Mutex            sync.Mutex
@@ -63,6 +66,22 @@ func NewPeerManager(userID uint64) *PeerManager {
 		Config: config,
 	}
 }
+func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
+	if len(peerIDs) == 0 {
+		return
+	}
+	pm.Mutex.Lock()
+	defer pm.Mutex.Unlock()
+
+	minID := peerIDs[0]
+	for _, id := range peerIDs {
+		if id < minID {
+			minID = id
+		}
+	}
+	pm.HostID = minID
+	log.Printf("[HOST] Initial host set to: %d", pm.HostID)
+}
 
 func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc func(SignalingMessage) error) {
 	switch msg.Type {
@@ -87,6 +106,24 @@ func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc fun
 		log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
 		if err := pm.HandleAnswer(msg, sendFunc); err != nil {
 			log.Printf("[WEBRTC SIGNALING] Handle answer error: %v", err)
+		}
+	case "host-changed":
+		log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
+		if newHostID := pm.findNextHost(); newHostID != 0 {
+			pm.HostID = newHostID
+			log.Printf("[HOST] Host reassigned to %d", pm.HostID)
+
+			hostChangeMsg := SignalingMessage{
+				Type:   "host-changed",
+				Sender: pm.UserID,
+				Target: 0,
+				Users:  pm.GetPeerIDs(),
+			}
+			if err := sendFunc(hostChangeMsg); err != nil {
+				log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
+			}
+		} else {
+			log.Printf("[WEBRTC SIGNALING] No new host found.")
 		}
 
 	case "ice-candidate":
@@ -114,12 +151,12 @@ func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc fun
 			log.Printf("Failed to send message to %d: %v", msg.Target, err)
 		}
 	case "start-session":
-		log.Printf("[WEBRTC SIGNALING] Received start command. Initiating peer offers.")
+		log.Printf("[WEBRTC SIGNALING] Received start command. Going Full peer to peer.")
 		for peerID := range pm.Peers {
 			if peerID == pm.UserID {
 				continue
 			}
-			if err := pm.CreateAndSendOffer(peerID, sendFunc); err != nil {
+			if err := pm.CheckAllConnectedAndDisconnect(); err != nil {
 				log.Printf("Offer to peer %d failed: %v", peerID, err)
 			}
 		}
@@ -276,9 +313,9 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 			webrtc.PeerConnectionStateClosed:
 
 			log.Printf("[PEER] Connection to %d is %s. Cleaning up.", msg.Sender, state)
-			peer.cancel()
-			pm.RemovePeer(msg.Sender)
-			go pm.CheckAllConnectedAndDisconnect(sendFunc)
+			peer.Cancel()
+			pm.RemovePeer(msg.Sender, sendFunc)
+			go pm.CheckAllConnectedAndDisconnect()
 		}
 	})
 
@@ -383,6 +420,12 @@ func (peer *Peer) handleSendLoop() {
 		}
 	}
 }
+
+func (p *Peer) Cancel() {
+	p.cancelOnce.Do(func() {
+		p.cancel()
+	})
+}
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
 	pm.Mutex.Lock()
 	peer, ok := pm.Peers[peerID]
@@ -419,8 +462,7 @@ func (pm *PeerManager) SendPayloadToPeer(peerID uint64, payload Payload) error {
 func (pm *PeerManager) OnPeerCreated(f func(*Peer, SignalingMessage)) {
 	pm.onPeerCreated = f
 }
-
-func (pm *PeerManager) RemovePeer(peerID uint64) {
+func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage) error) {
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
 
@@ -430,13 +472,40 @@ func (pm *PeerManager) RemovePeer(peerID uint64) {
 		return
 	}
 
-	// Perform any additional cleanup here (e.g., data channel closure)
-	log.Printf("[REMOVE] Initiating graceful shutdown for peer %d", peerID)
-	peer.cancel()
+	peer.Cancel()
 	peer.Connection.Close()
-
 	delete(pm.Peers, peerID)
 	log.Printf("[PEER] Peer %d removed successfully", peerID)
+
+	// Host reassignment logic
+	if peerID == pm.HostID {
+		newHostID := pm.findNextHost()
+		if newHostID != 0 {
+			pm.HostID = pm.findNextHost()
+			log.Printf("[HOST] Host reassigned to %d", pm.HostID)
+
+			// Notify others about the host change
+			hostChangeMsg := SignalingMessage{
+				Type:   "host-changed",
+				Sender: pm.UserID,
+				Target: 0, // Broadcast to all peers
+				Users:  pm.GetPeerIDs(),
+			}
+			if err := sendFunc(hostChangeMsg); err != nil {
+				log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
+			}
+		}
+	}
+}
+
+func (pm *PeerManager) findNextHost() uint64 {
+	var nextHost uint64 = 0
+	for id := range pm.Peers {
+		if nextHost == 0 || id < nextHost {
+			nextHost = id
+		}
+	}
+	return nextHost
 }
 
 func (pm *PeerManager) CloseAll() {
@@ -447,7 +516,7 @@ func (pm *PeerManager) CloseAll() {
 		if peer.Connection != nil {
 			peer.Connection.Close()
 		}
-		peer.cancel()
+		peer.Cancel()
 		delete(pm.Peers, id)
 		log.Printf("[PEER] Closed connection to peer %d", id)
 	}
@@ -464,7 +533,7 @@ func (pm *PeerManager) GetPeerIDs() []uint64 {
 	return ids
 }
 
-func (pm *PeerManager) CheckAllConnectedAndDisconnect(sendFunc func(SignalingMessage) error) {
+func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
 	pm.Mutex.Lock()
 	defer pm.Mutex.Unlock()
 
@@ -474,12 +543,13 @@ func (pm *PeerManager) CheckAllConnectedAndDisconnect(sendFunc func(SignalingMes
 		p.mutex.Unlock()
 
 		if !connected {
-			return // Not all peers are connected yet
+			return errors.New("not all peers connected")
 		}
 	}
 
 	log.Println("[SIGNALING] All peers connected. Closing signaling client for full P2P.")
 	pm.Close()
+	return nil
 }
 
 func (pm *PeerManager) Close() {

@@ -66,7 +66,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 				assert.NoError(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	t.Logf("All clients successfully exchanged messages for 2 rounds.")
