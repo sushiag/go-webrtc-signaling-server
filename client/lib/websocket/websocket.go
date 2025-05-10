@@ -137,7 +137,7 @@ func (c *Client) Init() error {
 	return nil
 }
 
-func (c *Client) Close() {
+func (c *Client) CloseServer() {
 	c.closeOnce.Do(func() {
 		close(c.doneCh)
 		c.isClosed = true
@@ -228,7 +228,7 @@ func (c *Client) listen() {
 				} else {
 					log.Println("[CLIENT SIGNALING] Read error:", err)
 				}
-				c.Close()
+				c.CloseServer()
 				return
 			}
 
@@ -261,7 +261,7 @@ func (c *Client) listen() {
 				if c.onMessage != nil {
 					c.onMessage(msg)
 				}
-				c.LeaveServer()
+				c.CloseServer()
 				return
 
 			case MessageTypeHostChanged:
@@ -299,7 +299,7 @@ func (c *Client) listen() {
 
 			case MessageTypeDisconnect:
 				log.Printf("[CLIENT SIGNALING] Disconnected by server: %s", msg.Content)
-				c.Close()
+				c.CloseServer()
 				os.Exit(1)
 			}
 
@@ -360,9 +360,4 @@ func (c *Client) SendSignalingMessage(targetID uint64, msgType string, sdpOrCand
 	}
 
 	return c.Send(msg)
-}
-
-func (c *Client) LeaveServer() {
-	log.Println("[CLIENT SIGNALING] Leaving signaling server and switching to P2P")
-	c.Close()
 }

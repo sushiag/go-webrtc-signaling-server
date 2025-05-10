@@ -90,7 +90,7 @@ func (w *Client) LeaveRoom(peerID uint64) {
 }
 
 func (w *Client) Close() {
-	w.Websocket.Close()
+	w.Websocket.CloseServer()
 	w.PeerManager.CloseAll()
 }
 

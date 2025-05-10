@@ -436,13 +436,10 @@ func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
 		return fmt.Errorf("peer %d not found", peerID)
 	}
 
-	// Wait until the data channel is available
-	if peer.DataChannel == nil {
-		log.Printf("[SEND ERROR] Peer %d has no DataChannel", peerID)
-		return fmt.Errorf("peer %d has no DataChannel", peerID)
+	if err := pm.WaitForDataChannel(peerID, 10*time.Second); err != nil {
+		return fmt.Errorf("[SEND ERROR] %v", err)
 	}
 
-	// Make sure the DataChannel is open
 	if peer.DataChannel.ReadyState() != webrtc.DataChannelStateOpen {
 		log.Printf("[SEND ERROR] DataChannel for peer %d is not open", peerID)
 		return fmt.Errorf("data channel for peer %d is not open", peerID)

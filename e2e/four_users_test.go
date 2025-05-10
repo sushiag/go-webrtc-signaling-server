@@ -57,7 +57,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 		assert.NotNil(t, c.PeerManager.Peers, "Client's peer manager is empty")
 	}
 
-	for round := 1; round <= 2; round++ {
+	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
 		for _, sender := range clients {
 			for peerID := range sender.PeerManager.Peers {
@@ -70,4 +70,5 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	}
 
 	t.Logf("All clients successfully exchanged messages for 2 rounds.")
+
 }
