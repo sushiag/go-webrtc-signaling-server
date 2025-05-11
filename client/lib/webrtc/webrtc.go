@@ -18,7 +18,7 @@ type Peer struct {
 	DataChannel           *webrtc.DataChannel
 	bufferedICECandidates []webrtc.ICECandidateInit
 	remoteDescriptionSet  bool
-	mutex                 sync.Mutex
+	connectionState       chan webrtc.PeerConnectionState
 
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -32,9 +32,14 @@ type PeerManager struct {
 	HostID           uint64
 	Peers            map[uint64]*Peer
 	Config           webrtc.Configuration
-	Mutex            sync.Mutex
 	SignalingMessage SignalingMessage
 	onPeerCreated    func(*Peer, SignalingMessage)
+}
+
+type HostCommand struct {
+	SetIDs   []uint64
+	GetHost  bool
+	Response chan uint64
 }
 
 type SignalingMessage struct {
@@ -54,6 +59,10 @@ type Payload struct {
 	Data     []byte `json:"data"`
 }
 
+func (peer *Peer) handleConnectionStateChange(state webrtc.PeerConnectionState) {
+	peer.connectionState <- state
+}
+
 func NewPeerManager(userID uint64) *PeerManager {
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -70,8 +79,6 @@ func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
 	if len(peerIDs) == 0 {
 		return
 	}
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
 
 	minID := peerIDs[0]
 	for _, id := range peerIDs {
@@ -181,12 +188,13 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 	sendChan := make(chan string, 10)
 
 	peer := &Peer{
-		ID:          peerID,
-		Connection:  pc,
-		DataChannel: dc,
-		ctx:         ctx,
-		cancel:      cancel,
-		sendChan:    sendChan,
+		ID:              peerID,
+		Connection:      pc,
+		DataChannel:     dc,
+		ctx:             ctx,
+		cancel:          cancel,
+		sendChan:        sendChan,
+		connectionState: make(chan webrtc.PeerConnectionState),
 	}
 
 	go peer.handleSendLoop()
@@ -198,16 +206,12 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		}
 	})
 
-	pm.Mutex.Lock()
 	pm.Peers[peerID] = peer
-	pm.Mutex.Unlock()
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
-		peer.mutex.Lock()
-		defer peer.mutex.Unlock()
 
 		init := c.ToJSON()
 		if err := sendFunc(SignalingMessage{
@@ -224,9 +228,8 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		log.Printf("Peer connection with %d changed to %s", peerID, state)
 		switch state {
 		case webrtc.PeerConnectionStateConnected:
-			peer.mutex.Lock()
+
 			peer.isConnected = true
-			peer.mutex.Unlock()
 			log.Printf("[STATE] Peer %d connected successfully.", peerID)
 		case webrtc.PeerConnectionStateDisconnected:
 			log.Printf("[STATE] Peer %d disconnected.", peerID)
@@ -289,8 +292,6 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		if c == nil {
 			return
 		}
-		peer.mutex.Lock()
-		defer peer.mutex.Unlock()
 
 		init := c.ToJSON()
 		if peer.remoteDescriptionSet {
@@ -319,9 +320,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		}
 	})
 
-	pm.Mutex.Lock()
 	pm.Peers[msg.Sender] = peer
-	pm.Mutex.Unlock()
 
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
@@ -349,9 +348,8 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 }
 
 func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
-	pm.Mutex.Lock()
+
 	peer, ok := pm.Peers[msg.Sender]
-	pm.Mutex.Unlock()
 
 	if !ok {
 		return fmt.Errorf("peer %d not found", msg.Sender)
@@ -370,9 +368,8 @@ func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(Signalin
 }
 
 func (pm *PeerManager) HandleICECandidate(msg SignalingMessage) error {
-	pm.Mutex.Lock()
+
 	peer, ok := pm.Peers[msg.Sender]
-	pm.Mutex.Unlock()
 
 	if !ok {
 		err := fmt.Errorf("peer %d not found", msg.Sender)
@@ -393,8 +390,6 @@ func (pm *PeerManager) GracefulShutdown() {
 	fmt.Println("Gracefully shutting down signaling, but keeping P2P alive.")
 }
 func (peer *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(SignalingMessage) error) {
-	peer.mutex.Lock()
-	defer peer.mutex.Unlock()
 
 	peer.remoteDescriptionSet = true
 	for _, c := range peer.bufferedICECandidates {
@@ -417,6 +412,23 @@ func (peer *Peer) handleSendLoop() {
 			if peer.Connection.ConnectionState() == webrtc.PeerConnectionStateConnected {
 				_ = peer.DataChannel.SendText(msg)
 			}
+		case state := <-peer.connectionState:
+			log.Printf("Peer %d connection state changed to %v", peer.ID, state)
+			switch state {
+			case webrtc.PeerConnectionStateDisconnected:
+				log.Printf("Peer %d has disconnected", peer.ID)
+			case webrtc.PeerConnectionStateConnected:
+				log.Printf("Peer %d has joined", peer.ID)
+			case webrtc.PeerConnectionStateFailed:
+				log.Printf("Peer %d failed to connect to room", peer.ID)
+			case webrtc.PeerConnectionStateConnecting:
+				log.Printf("Peer %d is joining room", peer.ID)
+			case webrtc.PeerConnectionStateClosed:
+				log.Printf("Peer %d left the room", peer.ID)
+			default:
+				log.Println("Uknown state of connection")
+
+			}
 		}
 	}
 }
@@ -427,9 +439,8 @@ func (p *Peer) Cancel() {
 	})
 }
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
-	pm.Mutex.Lock()
+
 	peer, ok := pm.Peers[peerID]
-	pm.Mutex.Unlock()
 
 	if !ok {
 		log.Printf("[SEND ERROR] Peer %d not found", peerID)
@@ -460,8 +471,6 @@ func (pm *PeerManager) OnPeerCreated(f func(*Peer, SignalingMessage)) {
 	pm.onPeerCreated = f
 }
 func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage) error) {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
 
 	peer, ok := pm.Peers[peerID]
 	if !ok {
@@ -506,8 +515,6 @@ func (pm *PeerManager) findNextHost() uint64 {
 }
 
 func (pm *PeerManager) CloseAll() {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
 
 	for id, peer := range pm.Peers {
 		if peer.Connection != nil {
@@ -520,8 +527,6 @@ func (pm *PeerManager) CloseAll() {
 }
 
 func (pm *PeerManager) GetPeerIDs() []uint64 {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
 
 	ids := make([]uint64, 0, len(pm.Peers))
 	for id := range pm.Peers {
@@ -531,13 +536,9 @@ func (pm *PeerManager) GetPeerIDs() []uint64 {
 }
 
 func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
 
 	for _, p := range pm.Peers {
-		p.mutex.Lock()
 		connected := p.isConnected
-		p.mutex.Unlock()
 
 		if !connected {
 			return errors.New("not all peers connected")
@@ -550,8 +551,6 @@ func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
 }
 
 func (pm *PeerManager) Close() {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
 
 	// Close all peer connections
 	for _, peer := range pm.Peers {
@@ -567,9 +566,8 @@ func (pm *PeerManager) Close() {
 func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		pm.Mutex.Lock()
+
 		peer, ok := pm.Peers[peerID]
-		pm.Mutex.Unlock()
 
 		if ok && peer.DataChannel != nil {
 			return nil

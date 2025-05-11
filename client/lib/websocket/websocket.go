@@ -48,7 +48,7 @@ type Message struct {
 	SDP       string   `json:"sdp,omitempty"`       // session description
 	Users     []uint64 `json:"users,omitempty"`     // list of user ids
 	Text      string   `json:"text,omitempty"`      // for send messages
-	Payload   Payload  `json:"Payload,omitempty"`   // for send messages
+	Payload   Payload  `json:"payload,omitempty"`   // for send messages
 }
 
 // defined struct client instance with connection and state data
@@ -62,7 +62,6 @@ type Client struct {
 	onMessage  func(Message)   // callback function for handling messagess
 	doneCh     chan struct{}   // chanel for the signal connection closing
 	isClosed   bool            // closing when os exit
-	SendMutex  sync.Mutex      // concurrent writting to the websocket. safe thread
 	closeOnce  sync.Once       // close websocket connection
 }
 
@@ -143,10 +142,8 @@ func (c *Client) CloseServer() {
 		c.isClosed = true
 
 		if c.Conn != nil {
-			c.SendMutex.Lock()
 			_ = c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			_ = c.Conn.Close()
-			c.SendMutex.Unlock()
 		}
 		log.Println("[CLIENT SIGNALING] Connection closed")
 	})
@@ -156,9 +153,6 @@ func (c *Client) Send(msg Message) error {
 	if c.isClosed {
 		return fmt.Errorf("[CLIENT SIGNALING] Cannot send message, connection is closed")
 	}
-
-	c.SendMutex.Lock()
-	defer c.SendMutex.Unlock()
 
 	if msg.RoomID == 0 {
 		msg.RoomID = c.RoomID
