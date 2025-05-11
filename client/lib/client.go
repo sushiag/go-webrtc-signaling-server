@@ -12,24 +12,22 @@ type Client struct {
 	PeerManager *webrtc.PeerManager
 }
 
-// NewClient() creates a wrapper with WebSocket signaling (PeerManager initialized later).
 func NewClient(wsEndpoint string) *Client {
-	clientwebsocket := websocket.NewClient(wsEndpoint)
+	wsClient := websocket.NewClient(wsEndpoint)
 	return &Client{
-		Websocket: clientwebsocket,
+		Websocket: wsClient,
 	}
 }
 
-// Connect() handles authentication, then sets up PeerManager and signaling message handler.
-func (w *Client) Connect() error {
-	if err := w.Websocket.PreAuthenticate(); err != nil {
-		log.Fatal("[CLIENT]Failed to authenticate:", err)
+// and sets up message forwarding between WebSocket and WebRTC layers.
+func (c *Client) Connect() error {
+	if err := c.Websocket.PreAuthenticate(); err != nil {
+		log.Fatal("[CLIENT] Failed to authenticate:", err)
 	}
 
-	w.PeerManager = webrtc.NewPeerManager(w.Websocket.UserID)
+	c.PeerManager = webrtc.NewPeerManager(c.Websocket.UserID)
 
-	// message forwarding from webrtc to websocket
-	w.Websocket.SetMessageHandler(func(msg websocket.Message) {
+	c.Websocket.SetMessageHandler(func(msg websocket.Message) {
 		signalingMsg := webrtc.SignalingMessage{
 			Type:      msg.Type,
 			Sender:    msg.Sender,
@@ -38,13 +36,12 @@ func (w *Client) Connect() error {
 			Candidate: msg.Candidate,
 			Text:      msg.Text,
 			Users:     msg.Users,
-			Payload:   webrtc.Payload{},
+			Payload:   webrtc.Payload{}, // extend this if used later
 		}
-		log.Printf("[Client] Incoming signaling message: %+v", signalingMsg)
+		log.Printf("[CLIENT] Incoming signaling message: %+v", signalingMsg)
 
-		// message forwarding from websocket to webrtc
-		w.PeerManager.HandleSignalingMessage(signalingMsg, func(m webrtc.SignalingMessage) error {
-			err := w.Websocket.Send(websocket.Message{
+		c.PeerManager.HandleSignalingMessage(signalingMsg, func(m webrtc.SignalingMessage) error {
+			return c.Websocket.Send(websocket.Message{
 				Type:      m.Type,
 				Sender:    m.Sender,
 				Target:    m.Target,
@@ -52,52 +49,48 @@ func (w *Client) Connect() error {
 				Candidate: m.Candidate,
 				Text:      m.Text,
 				Users:     m.Users,
-				Payload:   websocket.Payload{},
+				Payload:   websocket.Payload{}, // extend this if used later
 			})
-			if err != nil {
-				log.Printf("[CLIENT] Failed to send signaling message: %v", err)
-			}
-			return err
 		})
 	})
 
-	return w.Websocket.Init()
+	return c.Websocket.Init()
 }
 
-func (w *Client) CreateRoom() error {
+func (c *Client) CreateRoom() error {
 	log.Println("[CLIENT] Creating room and assuming host role.")
-	return w.Websocket.Create()
+	return c.Websocket.Create()
 }
 
-func (w *Client) JoinRoom(roomID string) error {
-	log.Println("[CLIENT] Joining room.")
-	return w.Websocket.JoinRoom(roomID)
+func (c *Client) JoinRoom(roomID string) error {
+	log.Println("[CLIENT] Joining room:", roomID)
+	return c.Websocket.JoinRoom(roomID)
 }
 
-func (w *Client) StartSession() error {
-	return w.Websocket.StartSession()
+func (c *Client) StartSession() error {
+	return c.Websocket.StartSession()
 }
 
-func (w *Client) SendMessageToPeer(peerID uint64, data string) error {
-	return w.PeerManager.SendDataToPeer(peerID, []byte(data))
+func (c *Client) SendMessageToPeer(peerID uint64, data string) error {
+	return c.PeerManager.SendDataToPeer(peerID, []byte(data))
 }
 
-func (w *Client) LeaveRoom(peerID uint64) {
-	w.PeerManager.RemovePeer(peerID, func(msg webrtc.SignalingMessage) error {
-		log.Printf("[CLIENT] Removed peer with ID %d, signaling message: %+v", peerID, msg)
+func (c *Client) LeaveRoom(peerID uint64) {
+	c.PeerManager.RemovePeer(peerID, func(msg webrtc.SignalingMessage) error {
+		log.Printf("[CLIENT] Removed peer %d, signaling message: %+v", peerID, msg)
 		return nil
 	})
 }
 
-func (w *Client) Close() {
-	w.Websocket.CloseServer()
-	w.PeerManager.CloseAll()
+func (c *Client) Close() {
+	c.Websocket.Close()
+	c.PeerManager.CloseAll()
 }
 
-func (w *Client) SetServerURL(url string) {
-	w.Websocket.SetServerURL(url)
+func (c *Client) SetServerURL(url string) {
+	c.Websocket.SetServerURL(url)
 }
 
-func (w *Client) SetApiKey(key string) {
-	w.Websocket.SetApiKey(key)
+func (c *Client) SetApiKey(key string) {
+	c.Websocket.SetApiKey(key)
 }

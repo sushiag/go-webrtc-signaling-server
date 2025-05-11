@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -112,7 +113,7 @@ func (wm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request) 
 	userIDInterface, exists := wm.apiKeyToUserID.Load(payload.ApiKey)
 	var userID uint64
 	if !exists {
-		userID = wm.nextUserID
+		userID = atomic.AddUint64(&wm.nextUserID, 1)
 		wm.apiKeyToUserID.Store(payload.ApiKey, userID)
 		wm.nextUserID++
 	} else {
