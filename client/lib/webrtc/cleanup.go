@@ -8,41 +8,81 @@ import (
 )
 
 func (pm *PeerManager) CloseAll() {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
-
-	for id, peer := range pm.Peers {
-		if peer.Connection != nil {
-			peer.Connection.Close()
+	pm.Peers.Range(func(key, value any) bool {
+		id, ok := key.(uint64)
+		if !ok {
+			return true
 		}
-		peer.Cancel()
-		delete(pm.Peers, id)
-		log.Printf("[PEER] Closed connection to peer %d", id)
-	}
+		peer, ok := value.(*Peer)
+		if !ok {
+			return true
+		}
+
+		go func(id uint64, peer *Peer) {
+			peer.sendChan <- "close"
+
+			if peer.Connection != nil {
+				peer.Connection.Close()
+			}
+			peer.Cancel()
+
+			pm.Peers.Delete(id)
+			log.Printf("[PEER] Closed connection to peer %d", id)
+		}(id, peer)
+
+		return true
+	})
 }
 
 func (pm *PeerManager) GetPeerIDs() []uint64 {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
+	ids := make([]uint64, 0)
 
-	ids := make([]uint64, 0, len(pm.Peers))
-	for id := range pm.Peers {
-		ids = append(ids, id)
-	}
+	pm.Peers.Range(func(key, value any) bool {
+		if id, ok := key.(uint64); ok {
+			ids = append(ids, id)
+		}
+		return true
+	})
 	return ids
 }
 
 func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
+	var count int
+	pm.Peers.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	errCh := make(chan error, count)
 
-	for _, p := range pm.Peers {
-		p.mutex.Lock()
-		connected := p.isConnected
-		p.mutex.Unlock()
+	pm.Peers.Range(func(_, value any) bool {
+		peer, ok := value.(*Peer)
+		if !ok {
+			errCh <- errors.New("invalid peer type in map")
+			return true
+		}
 
-		if !connected {
-			return errors.New("not all peers connected")
+		go func(peer *Peer) {
+			peer.sendChan <- "start-session"
+
+			select {
+			case connected := <-peer.sendChan:
+				if connected != "true" {
+					errCh <- errors.New("not all peers connected")
+					return
+				}
+				errCh <- nil
+			case <-time.After(2 * time.Second):
+				errCh <- errors.New("timeout waiting for peer connection status")
+			}
+		}(peer)
+
+		return true
+	})
+
+	for i := 0; i < count; i++ {
+		if err := <-errCh; err != nil {
+			log.Println("[SIGNALING] Not all peers connected.")
+			return err
 		}
 	}
 
@@ -52,35 +92,47 @@ func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
 }
 
 func (pm *PeerManager) Close() {
-	pm.Mutex.Lock()
-	defer pm.Mutex.Unlock()
-
-	// Close all peer connections
-	for _, peer := range pm.Peers {
-		if peer.Connection != nil {
-			peer.Connection.Close()
+	pm.Peers.Range(func(_, value any) bool {
+		peer, ok := value.(*Peer)
+		if !ok {
+			return true
 		}
-	}
 
-	// Any other cleanup you need
+		go func(peer *Peer) {
+			peer.sendChan <- "close"
+			if peer.Connection != nil {
+				peer.Connection.Close()
+			}
+		}(peer)
+
+		return true
+	})
+
 	log.Println("[SIGNALING] PeerManager closed.")
 }
 
 func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	for {
-		pm.Mutex.Lock()
-		peer, ok := pm.Peers[peerID]
-		pm.Mutex.Unlock()
 
-		if ok && peer.DataChannel != nil {
-			return nil
+	for {
+		value, ok := pm.Peers.Load(peerID)
+		if !ok {
+			log.Printf("peer %d not found", peerID)
+			continue
+		}
+		peer, ok := value.(*Peer)
+		if !ok {
+			log.Printf("peer %d has invalid type", peerID)
+			continue
 		}
 
-		if time.Now().After(deadline) {
+		peer.sendChan <- "check_data_channel"
+
+		select {
+		case <-peer.sendChan:
+			return nil
+		case <-time.After(time.Until(deadline)):
 			return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
 		}
-
-		time.Sleep(50 * time.Millisecond)
 	}
 }

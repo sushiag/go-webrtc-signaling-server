@@ -13,23 +13,22 @@ type Peer struct {
 	DataChannel           *webrtc.DataChannel
 	bufferedICECandidates []webrtc.ICECandidateInit
 	remoteDescriptionSet  bool
-	mutex                 sync.Mutex
 
-	ctx         context.Context
-	cancel      context.CancelFunc
-	cancelOnce  sync.Once
-	sendChan    chan string
-	isConnected bool
+	ctx        context.Context
+	cancel     context.CancelFunc
+	cancelOnce sync.Once
+	sendChan   chan string
 }
 
 type PeerManager struct {
 	UserID           uint64
 	HostID           uint64
-	Peers            map[uint64]*Peer
+	Peers            sync.Map
 	Config           webrtc.Configuration
-	Mutex            sync.Mutex
 	SignalingMessage SignalingMessage
 	onPeerCreated    func(*Peer, SignalingMessage)
+	managerQueue     chan func()
+	sendSignalFunc   func(SignalingMessage) error
 }
 
 type SignalingMessage struct {

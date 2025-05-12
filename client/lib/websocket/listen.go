@@ -11,7 +11,7 @@ import (
 func (c *Client) listen() {
 	for {
 		select {
-		case <-c.doneCh:
+		case <-c.doneChan:
 			return
 		default:
 			_, data, err := c.Conn.ReadMessage()

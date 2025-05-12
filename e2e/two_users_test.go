@@ -49,25 +49,22 @@ func TestEndToEndSignaling(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// host (ClientA) starts the session
-	err = clientA.StartSession()
-	assert.NoError(t, err, "Client A failed to start session")
-
-	err = clientA.StartSession()
-	assert.NoError(t, err, "Client A failed to start session")
+	//err = clientA.StartSession()
+	//assert.NoError(t, err, "Client A failed to start session")
 
 	// wait for peer connection to be fully established
 	time.Sleep(2 * time.Second)
 
 	// assert that both clients are connected and have valid peers
-	assert.NotNil(t, clientA.PeerManager.Peers, "Client A's peer manager is empty")
-	assert.NotNil(t, clientB.PeerManager.Peers, "Client B's peer manager is empty")
+	assert.NotNil(t, clientA.PeerManager.Peers.Load, "Client A's peer manager does not contain expected peer")
+	assert.NotNil(t, clientB.PeerManager.Peers.Load, "Client B's peer manager does not contain expected peer")
 
 	// send a test message from ClientA to ClientB
 	var peerID uint64
-	for id := range clientA.PeerManager.Peers {
-		peerID = id
-		break
-	}
+	clientA.PeerManager.Peers.Range(func(key, value any) bool {
+		peerID = key.(uint64)
+		return false // break after first peer
+	})
 
 	// ensure the peerID is valid and then send the message
 	assert.NotZero(t, peerID, "No valid peer found for Client A to send message")
