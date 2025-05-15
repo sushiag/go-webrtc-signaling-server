@@ -7,17 +7,16 @@ import (
 func (pm *PeerManager) GracefulShutdown() {
 	log.Println("[SHUTDOWN] Initiating graceful shutdown...")
 
-	var keys []uint64
-	pm.Peers.Range(func(key, _ any) bool {
-		keys = append(keys, key.(uint64))
-		return true
-	})
-	for _, id := range keys {
-		value, _ := pm.Peers.Load(id)
+	pm.Peers.Range(func(key, value any) bool {
+		id := key.(uint64)
 		peer := value.(*Peer)
+
+		log.Printf("[SHUTDOWN] Closing peer %d", id)
 		peer.Cancel()
+
 		pm.Peers.Delete(id)
-	}
+		return true // continue iteration
+	})
 
 	log.Println("[SHUTDOWN] All peers closed.")
 }

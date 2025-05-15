@@ -82,7 +82,6 @@ func (pm *PeerManager) Close() {
 	})
 	log.Println("[SIGNALING] PeerManager closed.")
 }
-
 func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -90,8 +89,10 @@ func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) 
 		peer, ok := pm.Peers.Load(peerID)
 		if !ok {
 			if time.Now().After(deadline) {
+				log.Printf("[WAIT] Timeout waiting for peer %d in WaitForDataChannel", peerID)
 				return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
 			}
+			log.Printf("[WAIT] Peer %d not found, retrying...", peerID)
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
@@ -99,19 +100,23 @@ func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) 
 		// Type assertion to ensure we have a valid *Peer
 		p, ok := peer.(*Peer)
 		if !ok {
+			log.Printf("[WAIT] Invalid peer data for %d", peerID)
 			return fmt.Errorf("invalid peer data for %d", peerID)
 		}
 
 		// Check if the peer's DataChannel is available
 		if p.DataChannel != nil {
+			log.Printf("[WAIT] DataChannel for peer %d is available", peerID)
 			return nil
 		}
 
 		// Timeout check
 		if time.Now().After(deadline) {
+			log.Printf("[WAIT] Timeout waiting for DataChannel for peer %d", peerID)
 			return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
 		}
 
+		log.Printf("[WAIT] DataChannel for peer %d not yet available, retrying...", peerID)
 		time.Sleep(50 * time.Millisecond)
 	}
 }

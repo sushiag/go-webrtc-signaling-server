@@ -27,7 +27,6 @@ type PeerManager struct {
 	HostID           uint64
 	Peers            sync.Map
 	Config           webrtc.Configuration
-	Mutex            sync.Mutex
 	SignalingMessage SignalingMessage
 	onPeerCreated    func(*Peer, SignalingMessage)
 }
@@ -51,19 +50,5 @@ type Payload struct {
 }
 
 type PeerCommand struct {
-	Command string
-	Data    interface{}
-	Action  func(p *Peer)
+	Action func(p *Peer)
 }
-
-/*****
-func (p *Peer) run() {
-	for {
-		select {
-		case cmd := <-p.cmdChan:
-			cmd.Action(p)
-		case <-p.ctx.Done():
-			return
-		}
-	}
-}***/

@@ -53,18 +53,17 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	for _, c := range clients {
-		assert.NotNil(t, c.PeerManager.Peers, "Client's peer manager is empty")
-	}
-
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
 		for _, sender := range clients {
-			for peerID := range sender.PeerManager.Peers {
+			sender.PeerManager.Peers.Range(func(key, value any) bool {
+				peerID := key.(uint64)
 				message := "Round " + strconv.Itoa(round) + " from client " + strconv.FormatUint(sender.Websocket.UserID, 10)
 				err := sender.SendMessageToPeer(peerID, message)
 				assert.NoError(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
-			}
+				return true
+			})
+
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

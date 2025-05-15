@@ -17,18 +17,19 @@ import (
 
 // message type for the readmessages
 const (
-	TypeCreateRoom  = "create-room"
-	TypeJoin        = "join-room"
-	TypeOffer       = "offer"
-	TypeAnswer      = "answer"
-	TypeICE         = "ice-candidate"
-	TypeDisconnect  = "disconnect"
-	TypeText        = "text"
-	TypePeerJoined  = "peer-joined"
-	TypeRoomCreated = "room-created"
-	TypePeerList    = "peer-list"
-	TypePeerReady   = "peer-ready"
-	TypeStart       = "start"
+	TypeCreateRoom   = "create-room"
+	TypeJoin         = "join-room"
+	TypeOffer        = "offer"
+	TypeAnswer       = "answer"
+	TypeICE          = "ice-candidate"
+	TypeDisconnect   = "disconnect"
+	TypeText         = "text"
+	TypePeerJoined   = "peer-joined"
+	TypeRoomCreated  = "room-created"
+	TypePeerList     = "peer-list"
+	TypePeerReady    = "peer-ready"
+	TypeStart        = "start"
+	TypeStartSession = "start-session"
 )
 
 type Message struct {
@@ -309,8 +310,18 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 
 			wm.sendPeerListToUser(msg.RoomID, userID)
 
-		case TypeStart:
+		case TypeStartSession:
 			log.Printf("[WS] Received 'start' from user %d in room %d", msg.Sender, msg.RoomID)
+
+		case TypeDisconnect:
+			go wm.HandleDisconnect(msg)
+
+		case TypeText:
+			log.Printf("[WS] Text from %d: %s", userID, msg.Content)
+
+		case TypeStart:
+
+			log.Printf("[WS] Received start-session from peer %d", userID)
 
 			wm.mtx.Lock()
 			room, exists := wm.Rooms[msg.RoomID]
@@ -333,14 +344,18 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 			delete(wm.Rooms, msg.RoomID)
 			wm.mtx.Unlock()
 
-		case TypeDisconnect:
-			go wm.HandleDisconnect(msg)
+			if !exists {
+				log.Printf("[WS] Room %d does not exist", msg.RoomID)
+				return
+			}
 
-		case TypeText:
-			log.Printf("[WS] Text from %d: %s", userID, msg.Content)
-		case "start-session":
-
-			log.Printf("[WS] Received start-session from peer %d", userID)
+			for uid, peerConn := range room.Users {
+				if peerConn != nil {
+					log.Printf("[WS] Closing connection to user %d for P2P switch", uid)
+					_ = peerConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
+					_ = peerConn.Close()
+				}
+			}
 		default:
 			log.Printf("[WS] Unknown message type: %s", msg.Type)
 		}
@@ -479,13 +494,6 @@ func (wm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool 
 		}
 	}
 	return true
-}
-
-func (wm *WebSocketManager) maybeDeleteRoom(roomID uint64) {
-	if room, ok := wm.Rooms[roomID]; ok && len(room.Users) == 0 {
-		delete(wm.Rooms, roomID)
-		log.Printf("[WS] Room %d deleted because it is empty", roomID)
-	}
 }
 
 func (wm *WebSocketManager) disconnectUser(userID uint64) {

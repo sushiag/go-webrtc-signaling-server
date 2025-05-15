@@ -15,6 +15,7 @@ func (p *Peer) StartCommandLoop() {
 		}
 	}()
 }
+
 func (p *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(SignalingMessage) error) {
 	done := make(chan struct{})
 	p.cmdChan <- PeerCommand{
@@ -35,13 +36,25 @@ func (p *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(SignalingMe
 	<-done // Optional: wait for operation to complete
 }
 
+func (peer *Peer) handleSendLoop() {
+	for {
+		select {
+		case <-peer.ctx.Done():
+			return
+		case msg := <-peer.sendChan:
+			if peer.Connection.ConnectionState() == webrtc.PeerConnectionStateConnected {
+				_ = peer.DataChannel.SendText(msg)
+			}
+		}
+	}
+}
+
 func (p *Peer) Cancel() {
 	p.cancelOnce.Do(func() {
 		p.cancel()
 	})
 }
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
-	// Use Load to retrieve the peer from sync.Map
 	peerInterface, ok := pm.Peers.Load(peerID)
 	if !ok {
 		log.Printf("[SEND ERROR] Peer %d not found", peerID)

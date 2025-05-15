@@ -119,6 +119,7 @@ func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc fun
 		})
 	}
 }
+
 func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(SignalingMessage) error) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
@@ -143,9 +144,9 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		ctx:         ctx,
 		cancel:      cancel,
 		sendChan:    sendChan,
-		cmdChan:     make(chan PeerCommand, 10), // <-- REQUIRED
 	}
-	peer.StartCommandLoop()
+
+	go peer.handleSendLoop()
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		log.Printf("Received raw data: %v", msg.Data)
@@ -153,22 +154,24 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 			log.Printf("As string: %s", string(msg.Data))
 		}
 	})
+
 	pm.Peers.Store(peerID, peer)
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
-		init := c.ToJSON()
 
+		init := c.ToJSON()
 		peer.cmdChan <- PeerCommand{
 			Action: func(p *Peer) {
-				if err := sendFunc(SignalingMessage{
+				err := sendFunc(SignalingMessage{
 					Type:      "ice-candidate",
 					Sender:    pm.UserID,
 					Target:    peerID,
 					Candidate: init.Candidate,
-				}); err != nil {
+				})
+				if err != nil {
 					log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", peerID, err)
 				}
 			},
@@ -206,6 +209,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		SDP:    offer.SDP,
 	})
 }
+
 func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
@@ -222,9 +226,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		ctx:         ctx,
 		cancel:      cancel,
 		sendChan:    sendChan,
-		cmdChan:     make(chan PeerCommand, 10), // <-- REQUIRED
 	}
-	peer.StartCommandLoop()
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		peer.DataChannel = dc
@@ -238,8 +240,9 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 				log.Printf("As string: %s", string(msg.Data))
 			}
 		})
-	})
 
+		log.Printf("DataChannel established for peer %d", peer.ID)
+	})
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
@@ -306,6 +309,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		SDP:    answer.SDP,
 	})
 }
+
 func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
 	value, ok := pm.Peers.Load(msg.Sender)
 	if !ok {
@@ -325,6 +329,7 @@ func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(Signalin
 	peer.OnRemoteDescriptionSet(pm.UserID, sendFunc)
 	return nil
 }
+
 func (pm *PeerManager) HandleICECandidate(msg SignalingMessage) error {
 	value, ok := pm.Peers.Load(msg.Sender)
 	if !ok {
