@@ -338,9 +338,11 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 
 		case TypeText:
 			log.Printf("[WS] Text from %d: %s", userID, msg.Content)
+
 		case "start-session":
 
 			log.Printf("[WS] Received start-session from peer %d", userID)
+
 		default:
 			log.Printf("[WS] Unknown message type: %s", msg.Type)
 		}

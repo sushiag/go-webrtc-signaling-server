@@ -11,10 +11,10 @@ import (
 func (c *Client) listen() {
 	for {
 		select {
-		case <-c.doneChan:
+		case <-c.doneCh:
 			return
 		default:
-			_, data, err := c.Conn.ReadMessage()
+			msgType, data, err := c.Conn.ReadMessage()
 			if err != nil {
 				if closeErr, ok := err.(*websocket.CloseError); ok {
 					log.Printf("[CLIENT SIGNALING] WebSocket closed: %s", closeErr.Text)
@@ -23,6 +23,11 @@ func (c *Client) listen() {
 				}
 				c.Close()
 				return
+			}
+
+			if msgType != websocket.TextMessage {
+				log.Printf("[CLIENT SIGNALING] Ignoring non-text message (type=%d)", msgType)
+				continue
 			}
 
 			var msg Message

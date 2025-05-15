@@ -80,6 +80,7 @@ func (w *Client) JoinRoom(roomID string) error {
 
 func (w *Client) StartSession() error {
 	return w.Websocket.StartSession()
+
 }
 
 func (w *Client) SendMessageToPeer(peerID uint64, data string) error {

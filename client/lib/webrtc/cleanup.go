@@ -1,35 +1,28 @@
 package webrtc
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"time"
 )
 
 func (pm *PeerManager) CloseAll() {
-	pm.Peers.Range(func(key, value any) bool {
-		id, ok := key.(uint64)
-		if !ok {
-			return true
+	pm.Peers.Range(func(key, value interface{}) bool {
+		peer := value.(*Peer)
+
+		// Send a command to the peer's goroutine to close the connection and cancel context
+		peer.cmdChan <- PeerCommand{
+			Action: func(p *Peer) {
+				if p.Connection != nil {
+					_ = p.Connection.Close()
+				}
+				p.Cancel()
+				log.Printf("[PEER] Closed connection to peer %d", p.ID)
+			},
 		}
-		peer, ok := value.(*Peer)
-		if !ok {
-			return true
-		}
 
-		go func(id uint64, peer *Peer) {
-			peer.sendChan <- "close"
-
-			if peer.Connection != nil {
-				peer.Connection.Close()
-			}
-			peer.Cancel()
-
-			pm.Peers.Delete(id)
-			log.Printf("[PEER] Closed connection to peer %d", id)
-		}(id, peer)
-
+		// Remove peer from map after command sent (not inside peer goroutine)
+		pm.Peers.Delete(key)
 		return true
 	})
 }
@@ -37,53 +30,42 @@ func (pm *PeerManager) CloseAll() {
 func (pm *PeerManager) GetPeerIDs() []uint64 {
 	ids := make([]uint64, 0)
 
-	pm.Peers.Range(func(key, value any) bool {
-		if id, ok := key.(uint64); ok {
-			ids = append(ids, id)
+	pm.Peers.Range(func(_, value interface{}) bool {
+		if peer, ok := value.(*Peer); ok {
+			ids = append(ids, peer.ID)
 		}
 		return true
 	})
+
 	return ids
 }
 
 func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
-	var count int
-	pm.Peers.Range(func(_, _ any) bool {
-		count++
-		return true
-	})
-	errCh := make(chan error, count)
+	allConnected := true
 
-	pm.Peers.Range(func(_, value any) bool {
-		peer, ok := value.(*Peer)
-		if !ok {
-			errCh <- errors.New("invalid peer type in map")
-			return true
+	pm.Peers.Range(func(_, value interface{}) bool {
+		peer := value.(*Peer)
+		resultChan := make(chan bool)
+
+		// Ask peer goroutine to report connection status
+		peer.cmdChan <- PeerCommand{
+			Action: func(p *Peer) {
+				resultChan <- p.isConnected
+			},
 		}
 
-		go func(peer *Peer) {
-			peer.sendChan <- "start-session"
+		connected := <-resultChan
+		close(resultChan)
 
-			select {
-			case connected := <-peer.sendChan:
-				if connected != "true" {
-					errCh <- errors.New("not all peers connected")
-					return
-				}
-				errCh <- nil
-			case <-time.After(2 * time.Second):
-				errCh <- errors.New("timeout waiting for peer connection status")
-			}
-		}(peer)
-
+		if !connected {
+			allConnected = false
+			return false // stop iteration early
+		}
 		return true
 	})
 
-	for i := 0; i < count; i++ {
-		if err := <-errCh; err != nil {
-			log.Println("[SIGNALING] Not all peers connected.")
-			return err
-		}
+	if !allConnected {
+		return fmt.Errorf("not all peers connected")
 	}
 
 	log.Println("[SIGNALING] All peers connected. Closing signaling client for full P2P.")
@@ -92,47 +74,44 @@ func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
 }
 
 func (pm *PeerManager) Close() {
-	pm.Peers.Range(func(_, value any) bool {
-		peer, ok := value.(*Peer)
-		if !ok {
-			return true
+	pm.Peers.Range(func(_, value interface{}) bool {
+		if peer, ok := value.(*Peer); ok && peer.Connection != nil {
+			_ = peer.Connection.Close()
 		}
-
-		go func(peer *Peer) {
-			peer.sendChan <- "close"
-			if peer.Connection != nil {
-				peer.Connection.Close()
-			}
-		}(peer)
-
 		return true
 	})
-
 	log.Println("[SIGNALING] PeerManager closed.")
 }
 
 func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-
 	for {
-		value, ok := pm.Peers.Load(peerID)
+		// Load the peer from the sync.Map
+		peer, ok := pm.Peers.Load(peerID)
 		if !ok {
-			log.Printf("peer %d not found", peerID)
-			continue
-		}
-		peer, ok := value.(*Peer)
-		if !ok {
-			log.Printf("peer %d has invalid type", peerID)
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
+			}
+			time.Sleep(50 * time.Millisecond)
 			continue
 		}
 
-		peer.sendChan <- "check_data_channel"
+		// Type assertion to ensure we have a valid *Peer
+		p, ok := peer.(*Peer)
+		if !ok {
+			return fmt.Errorf("invalid peer data for %d", peerID)
+		}
 
-		select {
-		case <-peer.sendChan:
+		// Check if the peer's DataChannel is available
+		if p.DataChannel != nil {
 			return nil
-		case <-time.After(time.Until(deadline)):
+		}
+
+		// Timeout check
+		if time.Now().After(deadline) {
 			return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
 		}
+
+		time.Sleep(50 * time.Millisecond)
 	}
 }

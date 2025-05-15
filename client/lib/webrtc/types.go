@@ -13,11 +13,13 @@ type Peer struct {
 	DataChannel           *webrtc.DataChannel
 	bufferedICECandidates []webrtc.ICECandidateInit
 	remoteDescriptionSet  bool
+	cmdChan               chan PeerCommand
 
-	ctx        context.Context
-	cancel     context.CancelFunc
-	cancelOnce sync.Once
-	sendChan   chan string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	cancelOnce  sync.Once
+	sendChan    chan string
+	isConnected bool
 }
 
 type PeerManager struct {
@@ -25,10 +27,9 @@ type PeerManager struct {
 	HostID           uint64
 	Peers            sync.Map
 	Config           webrtc.Configuration
+	Mutex            sync.Mutex
 	SignalingMessage SignalingMessage
 	onPeerCreated    func(*Peer, SignalingMessage)
-	managerQueue     chan func()
-	sendSignalFunc   func(SignalingMessage) error
 }
 
 type SignalingMessage struct {
@@ -43,7 +44,26 @@ type SignalingMessage struct {
 	Text      string   // for send messages
 	Payload   Payload  // "file", "text", "image"
 }
+
 type Payload struct {
 	DataType string `json:"data_type"`
 	Data     []byte `json:"data"`
 }
+
+type PeerCommand struct {
+	Command string
+	Data    interface{}
+	Action  func(p *Peer)
+}
+
+/*****
+func (p *Peer) run() {
+	for {
+		select {
+		case cmd := <-p.cmdChan:
+			cmd.Action(p)
+		case <-p.ctx.Done():
+			return
+		}
+	}
+}***/

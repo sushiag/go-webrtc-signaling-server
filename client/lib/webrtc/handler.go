@@ -4,16 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
 
 	"github.com/pion/webrtc/v4"
 )
-
-func (pm *PeerManager) managerWorker() {
-	for fn := range pm.managerQueue {
-		fn()
-	}
-}
 
 func NewPeerManager(userID uint64) *PeerManager {
 	config := webrtc.Configuration{
@@ -21,111 +14,111 @@ func NewPeerManager(userID uint64) *PeerManager {
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
 		},
 	}
-
-	pm := &PeerManager{
-		UserID:       userID,
-		Peers:        sync.Map{},
-		Config:       config,
-		managerQueue: make(chan func(), 100),
+	return &PeerManager{
+		UserID: userID,
+		Config: config,
 	}
+}
+func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
+	var minID uint64
+	first := true
 
-	go pm.managerWorker()
-
-	return pm
+	pm.Peers.Range(func(key, _ interface{}) bool {
+		id := key.(uint64)
+		if first || id < minID {
+			minID = id
+			first = false
+		}
+		return true
+	})
+	if !first {
+		pm.HostID = minID
+		log.Printf("[HOST] Initial host set to: %d", pm.HostID)
+	}
 }
 
 func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc func(SignalingMessage) error) {
-	pm.managerQueue <- func() {
-		if pm.sendSignalFunc == nil {
-			pm.sendSignalFunc = sendFunc
+	switch msg.Type {
+	case "peer-list":
+		for _, peerID := range msg.Users {
+			if peerID == pm.UserID {
+				continue
+			}
+			log.Printf("[WEBRTC SIGNALING] Connecting to peer: %d", peerID)
+			if err := pm.CreateAndSendOffer(peerID, sendFunc); err != nil {
+				log.Printf("[WEBRTC SIGNALING] Offer to %d failed: %v", peerID, err)
+			}
 		}
-		switch msg.Type {
-		case "peer-list":
-			for _, peerID := range msg.Users {
-				if peerID == pm.UserID {
-					continue
-				}
-				log.Printf("[WEBRTC SIGNALING] Connecting to peer: %d", peerID)
-				if err := pm.CreateAndSendOffer(peerID, sendFunc); err != nil {
-					log.Printf("[WEBRTC SIGNALING] Offer to %d failed: %v", peerID, err)
-				} else {
-					log.Printf("[WEBRTC SIGNALING] Successfully sent offer to %d", peerID)
-				}
-			}
 
-		case "offer":
-			log.Printf("[WEBRTC SIGNALING] Received offer from %d", msg.Sender)
-			if err := pm.HandleOffer(msg, sendFunc); err != nil {
-				log.Printf("[WEBRTC SIGNALING] Handle offer error: %v", err)
-			}
+	case "offer":
+		log.Printf("[WEBRTC SIGNALING] Received offer from %d", msg.Sender)
+		if err := pm.HandleOffer(msg, sendFunc); err != nil {
+			log.Printf("[WEBRTC SIGNALING] Handle offer error: %v", err)
+		}
 
-		case "answer":
-			log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
-			if err := pm.HandleAnswer(msg, sendFunc); err != nil {
-				log.Printf("[WEBRTC SIGNALING] Handle answer error: %v", err)
-			}
-		case "host-changed":
-			log.Printf("[WEBRTC SIGNALING] Received host change from %d", msg.Sender)
-			if newHostID := pm.findNextHost(); newHostID != 0 {
-				pm.HostID = newHostID
-				log.Printf("[HOST] Host reassigned to %d", pm.HostID)
+	case "answer":
+		log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
+		if err := pm.HandleAnswer(msg, sendFunc); err != nil {
+			log.Printf("[WEBRTC SIGNALING] Handle answer error: %v", err)
+		}
+	case "host-changed":
+		log.Printf("[WEBRTC SIGNALING] Received answer from %d", msg.Sender)
+		if newHostID := pm.findNextHost(); newHostID != 0 {
+			pm.HostID = newHostID
+			log.Printf("[HOST] Host reassigned to %d", pm.HostID)
 
-				if pm.sendSignalFunc != nil {
-					hostChangeMsg := SignalingMessage{
-						Type:   "host-changed",
-						Sender: pm.UserID,
-						Target: 0,
-						Users:  pm.GetPeerIDs(),
-					}
-					if err := pm.sendSignalFunc(hostChangeMsg); err != nil {
-						log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
-					}
-				}
-			} else {
-				log.Printf("[WEBRTC SIGNALING] No new host found.")
+			hostChangeMsg := SignalingMessage{
+				Type:   "host-changed",
+				Sender: pm.UserID,
+				Target: 0,
+				Users:  pm.GetPeerIDs(),
 			}
+			if err := sendFunc(hostChangeMsg); err != nil {
+				log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
+			}
+		} else {
+			log.Printf("[WEBRTC SIGNALING] No new host found.")
+		}
 
-		case "ice-candidate":
-			log.Printf("[WEBRTC SIGNALING] Received ICE candidate from %d", msg.Sender)
-			if err := pm.HandleICECandidate(msg, sendFunc); err != nil {
-				log.Printf("[WEBRTC SIGNALING] Failed to handle candidate from %d: %v", msg.Sender, err)
-			}
+	case "ice-candidate":
+		log.Printf("[WEBRTC SIGNALING] Received ICE candidate from %d", msg.Sender)
+		if err := pm.HandleICECandidate(msg); err != nil {
+			log.Printf("[WEBRTC SIGNALING] Failed to handle candidate from %d: %v", msg.Sender, err)
+		}
 
-		case "send-message":
-			if msg.Text == "" && msg.Payload.Data == nil {
-				log.Printf("Empty message received from %d, ignoring", msg.Sender)
-				return
-			}
+	case "send-message":
+		if msg.Text == "" && msg.Payload.Data == nil {
+			log.Printf("Empty message received from %d, ignoring", msg.Sender)
+			return
+		}
 
-			if msg.Text != "" {
-				log.Printf("[WEBRTC SIGNALING] Received text message from %d to %d: %s", msg.Sender, msg.Target, msg.Text)
-			}
+		if msg.Text != "" {
+			log.Printf("[WEBRTC SIGNALING] Received text message from %d to %d: %s", msg.Sender, msg.Target, msg.Text)
+		}
 
-			if msg.Payload.Data != nil {
-				log.Printf("[WEBRTC SIGNALING] Received %s data from %d", msg.Payload.DataType, msg.Sender)
-			}
+		if msg.Payload.Data != nil {
+			log.Printf("[WEBRTC SIGNALING] Received %s data from %d", msg.Payload.DataType, msg.Sender)
+		}
 
-			data := []byte(msg.Text)
-			if err := pm.SendDataToPeer(msg.Target, data); err != nil {
-				log.Printf("Failed to send message to %d: %v", msg.Target, err)
-			}
-		case "start-session":
-			log.Printf("[WEBRTC SIGNALING] Received start command. Going Full peer to peer.")
-			pm.Peers.Range(func(key, value interface{}) bool {
-				peerID := key.(uint64)
-				if peerID == pm.UserID {
-					return true
-				}
-				if err := pm.CheckAllConnectedAndDisconnect(); err != nil {
-					log.Printf("Offer to peer %d failed: %v", peerID, err)
-				}
+		data := []byte(msg.Text)
+		if err := pm.SendDataToPeer(msg.Target, data); err != nil {
+			log.Printf("Failed to send message to %d: %v", msg.Target, err)
+		}
+	case "start-session":
+		log.Printf("[WEBRTC SIGNALING] Received start command. Going Full peer to peer.")
+
+		pm.Peers.Range(func(key, value interface{}) bool {
+			peerID := key.(uint64)
+			if peerID == pm.UserID {
 				return true
-			})
-
-		}
+			}
+			if err := pm.CheckAllConnectedAndDisconnect(); err != nil {
+				log.Printf("Offer to peer %d failed: %v", peerID, err)
+			}
+			return true
+		})
 	}
 }
-
 func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(SignalingMessage) error) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
@@ -150,9 +143,9 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		ctx:         ctx,
 		cancel:      cancel,
 		sendChan:    sendChan,
+		cmdChan:     make(chan PeerCommand, 10), // <-- REQUIRED
 	}
-
-	go peer.handleSendLoop()
+	peer.StartCommandLoop()
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		log.Printf("Received raw data: %v", msg.Data)
@@ -160,33 +153,40 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 			log.Printf("As string: %s", string(msg.Data))
 		}
 	})
+	pm.Peers.Store(peerID, peer)
 
-	pm.managerQueue <- func() {
-		pm.Peers.Store(peerID, peer) // Corrected to use Store
-	}
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil || pm.sendSignalFunc == nil {
+		if c == nil {
 			return
 		}
 		init := c.ToJSON()
-		err := pm.sendSignalFunc(SignalingMessage{
-			Type:      "ice-candidate",
-			Sender:    pm.UserID,
-			Target:    peerID,
-			Candidate: init.Candidate,
-		})
-		if err != nil {
-			log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", peerID, err)
+
+		peer.cmdChan <- PeerCommand{
+			Action: func(p *Peer) {
+				if err := sendFunc(SignalingMessage{
+					Type:      "ice-candidate",
+					Sender:    pm.UserID,
+					Target:    peerID,
+					Candidate: init.Candidate,
+				}); err != nil {
+					log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", peerID, err)
+				}
+			},
 		}
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		log.Printf("Peer connection with %d changed to %s", peerID, state)
 
-		select {
-		case peer.sendChan <- state.String():
-		default:
-			log.Printf("[WARN] Channel is full for peer %d, state: %s", peerID, state)
+		if state == webrtc.PeerConnectionStateConnected {
+			peer.cmdChan <- PeerCommand{
+				Action: func(p *Peer) {
+					p.isConnected = true
+					log.Printf("[STATE] Peer %d connected successfully.", peerID)
+				},
+			}
+		} else {
+			log.Printf("[STATE] Peer %d connection state: %s", peerID, state)
 		}
 	})
 
@@ -199,19 +199,13 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 	}
 	log.Printf("[SIGNALING] Sending offer to %d", peerID)
 
-	if pm.sendSignalFunc != nil {
-		if err := pm.sendSignalFunc(SignalingMessage{
-			Type:   "offer",
-			Sender: pm.UserID,
-			Target: peerID,
-			SDP:    offer.SDP,
-		}); err != nil {
-			log.Printf("Peer %d failed to offer :%v", peerID, err)
-		}
-	}
-	return nil
+	return sendFunc(SignalingMessage{
+		Type:   "offer",
+		Sender: pm.UserID,
+		Target: peerID,
+		SDP:    offer.SDP,
+	})
 }
-
 func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
 	pc, err := webrtc.NewPeerConnection(pm.Config)
 	if err != nil {
@@ -228,10 +222,13 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		ctx:         ctx,
 		cancel:      cancel,
 		sendChan:    sendChan,
+		cmdChan:     make(chan PeerCommand, 10), // <-- REQUIRED
 	}
+	peer.StartCommandLoop()
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		peer.DataChannel = dc
+
 		dc.OnOpen(func() {
 			log.Printf("[DATA] Channel open with %d", msg.Sender)
 		})
@@ -249,15 +246,23 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		}
 
 		init := c.ToJSON()
-		if peer.remoteDescriptionSet {
-			_ = pm.sendSignalFunc(SignalingMessage{
-				Type:      "ice-candidate",
-				Sender:    pm.UserID,
-				Target:    msg.Sender,
-				Candidate: init.Candidate,
-			})
-		} else {
-			peer.bufferedICECandidates = append(peer.bufferedICECandidates, init)
+
+		peer.cmdChan <- PeerCommand{
+			Action: func(p *Peer) {
+				if p.remoteDescriptionSet {
+					err := sendFunc(SignalingMessage{
+						Type:      "ice-candidate",
+						Sender:    pm.UserID,
+						Target:    msg.Sender,
+						Candidate: init.Candidate,
+					})
+					if err != nil {
+						log.Printf("[SIGNALING] Failed to send ICE candidate to %d: %v", msg.Sender, err)
+					}
+				} else {
+					p.bufferedICECandidates = append(p.bufferedICECandidates, init)
+				}
+			},
 		}
 	})
 
@@ -275,9 +280,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		}
 	})
 
-	pm.managerQueue <- func() {
-		pm.Peers.Store(msg.Sender, peer)
-	}
+	pm.Peers.Store(msg.Sender, peer)
 
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
@@ -286,7 +289,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		return err
 	}
 
-	peer.OnRemoteDescriptionSet(pm.UserID, pm.sendSignalFunc)
+	peer.OnRemoteDescriptionSet(pm.UserID, sendFunc)
 
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
@@ -296,73 +299,46 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		return err
 	}
 
-	if pm.sendSignalFunc != nil {
-		return pm.sendSignalFunc(SignalingMessage{
-			Type:   "answer",
-			Sender: pm.UserID,
-			Target: msg.Sender,
-			SDP:    answer.SDP,
-		})
-	}
-	return nil
-}
-
-func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
-	val, ok := pm.Peers.Load(msg.Sender)
-	if !ok {
-		return fmt.Errorf("peer %d not found", msg.Sender)
-	}
-	peer := val.(*Peer)
-
-	log.Printf("[SIGNALING] Setting remote description for answer from %d", msg.Sender)
-	err := peer.Connection.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeAnswer,
-		SDP:  msg.SDP,
+	return sendFunc(SignalingMessage{
+		Type:   "answer",
+		Sender: pm.UserID,
+		Target: msg.Sender,
+		SDP:    answer.SDP,
 	})
-	if err != nil {
-		return err
-	}
-
-	peer.OnRemoteDescriptionSet(pm.UserID, pm.sendSignalFunc)
-	return nil
 }
-
-func (pm *PeerManager) HandleICECandidate(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
+func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
 	value, ok := pm.Peers.Load(msg.Sender)
 	if !ok {
 		return fmt.Errorf("peer %d not found", msg.Sender)
 	}
-	peer, ok := value.(*Peer)
-	if !ok {
-		return fmt.Errorf("peer %d has invalid type", msg.Sender)
+	peer := value.(*Peer)
+
+	log.Printf("[SIGNALING] Setting remote description for answer from %d", msg.Sender)
+
+	if err := peer.Connection.SetRemoteDescription(webrtc.SessionDescription{
+		Type: webrtc.SDPTypeAnswer,
+		SDP:  msg.SDP,
+	}); err != nil {
+		return err
 	}
 
+	peer.OnRemoteDescriptionSet(pm.UserID, sendFunc)
+	return nil
+}
+func (pm *PeerManager) HandleICECandidate(msg SignalingMessage) error {
+	value, ok := pm.Peers.Load(msg.Sender)
+	if !ok {
+		err := fmt.Errorf("peer %d not found", msg.Sender)
+		log.Println("[ICE] Error:", err)
+		return err
+	}
+	peer := value.(*Peer)
+
 	log.Printf("[ICE] Handling ICE candidate from peer %d", msg.Sender)
+
 	err := peer.Connection.AddICECandidate(webrtc.ICECandidateInit{Candidate: msg.Candidate})
 	if err != nil {
 		log.Printf("[ICE] Failed to add ICE candidate from peer %d: %v", msg.Sender, err)
 	}
 	return err
-}
-
-func (peer *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(SignalingMessage) error) {
-	peer.remoteDescriptionSet = true
-	log.Printf("[ICE] Remote description set for peer %d. Sending %d buffered candidates.", peer.ID, len(peer.bufferedICECandidates))
-	for _, c := range peer.bufferedICECandidates {
-		if err := sendFunc(SignalingMessage{
-			Type:      "ice-candidate",
-			Sender:    senderID,
-			Target:    peer.ID,
-			Candidate: c.Candidate,
-		}); err != nil {
-			log.Printf("[ICE] Failed to send buffered candidate to %d: %v", peer.ID, err)
-		}
-	}
-	peer.bufferedICECandidates = nil
-
-	select {
-	case peer.sendChan <- "check_connected":
-	default:
-		log.Printf("[WARN] sendChan full for peer %d", peer.ID)
-	}
 }

@@ -16,8 +16,7 @@ type Client struct {
 	UserID     uint64
 	RoomID     uint64
 	onMessage  func(Message)
-	sendChan   chan Message
-	doneChan   chan struct{}
+	doneCh     chan struct{}
 	isClosed   bool
 	SendMutex  sync.Mutex
 	closeOnce  sync.Once
@@ -27,7 +26,7 @@ func NewClient(serverUrl string) *Client {
 	return &Client{
 		ServerURL: serverUrl,
 		ApiKey:    os.Getenv("API_KEY"),
-		doneChan:  make(chan struct{}),
+		doneCh:    make(chan struct{}),
 	}
 }
 
@@ -41,7 +40,7 @@ func (c *Client) StartSession() error {
 	msg := Message{
 		Type: "start-session",
 	}
-	return c.WriteMessage(msg)
+	return c.Send(msg)
 }
 
 func (c *Client) Close() {
@@ -55,7 +54,7 @@ func (c *Client) Close() {
 			}
 		}
 
-		close(c.doneChan)
+		close(c.doneCh)
 		log.Println("[CLIENT SIGNALING] WebSocket connection closed.")
 	})
 }

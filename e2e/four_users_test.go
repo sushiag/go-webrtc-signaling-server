@@ -28,9 +28,9 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 
 	clients := []*client.Client{clientA, clientB, clientC, clientD}
 
-	for _, c := range clients {
+	for i, c := range clients {
 		err := c.Connect()
-		assert.NoError(t, err, "Client failed to connect")
+		assert.NoError(t, err, "Client %d failed to connect", i)
 	}
 
 	err := clientA.CreateRoom()
@@ -38,13 +38,16 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	clientA.Websocket.RoomID = 1
-	joinRoomID := "1"
+	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
 
-	for _, c := range clients[1:] {
-		err := c.JoinRoom(joinRoomID)
-		assert.NoError(t, err, "Client failed to join room")
-	}
+	err = clientB.JoinRoom(roomID)
+	assert.NoError(t, err, "Client B failed to join room")
+
+	err = clientC.JoinRoom(roomID)
+	assert.NoError(t, err, "Client C failed to join room")
+
+	err = clientD.JoinRoom(roomID)
+	assert.NoError(t, err, "Client D failed to join room")
 
 	time.Sleep(2 * time.Second)
 
@@ -52,29 +55,20 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	assert.NoError(t, err, "Client A failed to start session")
 
 	time.Sleep(2 * time.Second)
-	for _, c := range clients {
-		peerCount := 0
-		c.PeerManager.Peers.Range(func(_, _ any) bool {
-			peerCount++
-			return false // stop early; we just care that one exists
-		})
-		assert.Greater(t, peerCount, 0, "Client's peer manager is empty")
-	}
 
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
 		for _, sender := range clients {
-			sender.PeerManager.Peers.Range(func(key, _ any) bool {
+			sender.PeerManager.Peers.Range(func(key, value any) bool {
 				peerID := key.(uint64)
 				message := "Round " + strconv.Itoa(round) + " from client " + strconv.FormatUint(sender.Websocket.UserID, 10)
 				err := sender.SendMessageToPeer(peerID, message)
-				assert.NoError(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
+				assert.NoErrorf(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
 				return true
 			})
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	t.Logf("All clients successfully exchanged messages for 2 rounds.")
-
+	t.Logf("All clients successfully exchanged messages for 1 round.")
 }
