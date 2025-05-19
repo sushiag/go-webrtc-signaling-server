@@ -1,21 +1,15 @@
 package server
 
 import (
-	"bufio"
 	"encoding/json"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
-	"os"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-// message type for the readmessages
 const (
 	TypeCreateRoom  = "create-room"
 	TypeJoin        = "join-room"
@@ -29,6 +23,8 @@ const (
 	TypePeerList    = "peer-list"
 	TypePeerReady   = "peer-ready"
 	TypeStart       = "start"
+	CmdText         = "text"
+	CmdStartSession = "start-session"
 )
 
 type Message struct {
@@ -43,8 +39,6 @@ type Message struct {
 	UserID    uint64   `json:"userid,omitempty"`
 	Users     []uint64 `json:"users,omitempty"`
 }
-
-// struct for a group of connected users
 type Room struct {
 	ID        uint64
 	Users     map[uint64]*websocket.Conn
@@ -53,53 +47,377 @@ type Room struct {
 	HostID    uint64
 }
 
-// this handles connection and room management
+type managerCommand struct {
+	cmd      string
+	message  Message
+	conn     *websocket.Conn
+	response chan any
+	respChan chan managerCommand
+	roomID   uint64
+	userID   uint64
+	err      error
+}
 type WebSocketManager struct {
-	Connections     map[uint64]*websocket.Conn
-	Rooms           map[uint64]*Room
-	mtx             sync.RWMutex
-	writeLock       sync.Mutex
-	upgrader        websocket.Upgrader
-	validApiKeys    map[string]bool
-	apiKeyToUserID  map[string]uint64
-	nextUserID      uint64
-	nextRoomID      uint64
-	candidateBuffer map[uint64][]Message
+	commandChan chan managerCommand
+	upgrader    websocket.Upgrader
+	//nextUserID        uint64
+	//nextRoomID        uint64
 }
 
-// this initializes a new manager
 func NewWebSocketManager() *WebSocketManager {
-	return &WebSocketManager{
-		Connections:     make(map[uint64]*websocket.Conn),
-		Rooms:           make(map[uint64]*Room),
-		apiKeyToUserID:  make(map[string]uint64),
-		candidateBuffer: make(map[uint64][]Message),
-		nextUserID:      1,
-		nextRoomID:      1,
+	m := &WebSocketManager{
+		commandChan: make(chan managerCommand),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
-}
-
-func (wsm *WebSocketManager) SafeWriteJSON(conn *websocket.Conn, v interface{}) error {
-	wsm.writeLock.Lock()
-	defer wsm.writeLock.Unlock()
-	return conn.WriteJSON(v)
+	go m.managerLoop()
+	return m
 }
 
 func (wm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
-	wm.validApiKeys = keys
+	for k := range keys {
+		resp := make(chan any)
+		wm.commandChan <- managerCommand{
+			cmd:      "register-api-key",
+			message:  Message{APIKey: k},
+			response: resp,
+		}
+		<-resp
+	}
+}
+func (wm *WebSocketManager) managerLoop() {
+	connections := make(map[uint64]*websocket.Conn)
+	rooms := make(map[uint64]*Room)
+	apiKeyToUserID := make(map[string]uint64)
+	candidateBuffer := make(map[uint64][]Message)
+	nextUserID := uint64(1)
+	nextRoomID := uint64(1)
+	validApiKeys := make(map[string]bool)
+
+	log.Printf("[WS] Manager loop started")
+
+	for cmd := range wm.commandChan {
+		log.Printf("[WS] Received command: %s from user %d", cmd.cmd, cmd.userID)
+
+		switch cmd.cmd {
+		case "clear-api-keys":
+			validApiKeys = make(map[string]bool)
+			cmd.response <- struct{}{}
+
+		case "register-api-key":
+			key := cmd.message.APIKey
+			if _, exists := validApiKeys[key]; !exists {
+				validApiKeys[key] = true
+				log.Printf("[WS] Registered API key: %s", key)
+			}
+			if cmd.response != nil {
+				cmd.response <- true
+			}
+
+		case "auth-assign-userid":
+			apiKey := cmd.message.APIKey
+			if !validApiKeys[apiKey] {
+				log.Printf("[WS] Unauthorized API key: %s", apiKey)
+				cmd.response <- uint64(0)
+				break
+			}
+			userID, ok := apiKeyToUserID[apiKey]
+			if !ok {
+				userID = nextUserID
+				nextUserID++
+				apiKeyToUserID[apiKey] = userID
+				log.Printf("[WS] Assigned new userID %d to API key %s", userID, apiKey)
+			} else {
+				log.Printf("[WS] Existing userID %d found for API key %s", userID, apiKey)
+			}
+			cmd.response <- userID
+
+		case "register-connection":
+			userID := cmd.message.UserID
+			if _, exists := connections[userID]; exists {
+				log.Printf("[WS] Connection already exists for user %d", userID)
+				cmd.response <- true
+			} else {
+				connections[userID] = cmd.conn
+				log.Printf("[WS] Registered new connection for user %d", userID)
+				cmd.response <- false
+			}
+
+		case "unregister-connection":
+			userID := cmd.message.UserID
+			delete(connections, userID)
+			log.Printf("[WS] Unregistered connection for user %d", userID)
+
+		case "add_user_to_room":
+			room, exists := rooms[cmd.roomID]
+			if !exists {
+				// Create new room
+				room = &Room{
+					ID:        cmd.roomID,
+					HostID:    cmd.userID,
+					JoinOrder: []uint64{cmd.userID},
+					Users:     make(map[uint64]*websocket.Conn),
+					ReadyMap:  make(map[uint64]bool),
+				}
+				rooms[cmd.roomID] = room
+				log.Printf("[WS] Created new room %d with host %d", cmd.roomID, cmd.userID)
+			}
+
+			conn, ok := connections[cmd.userID]
+			if !ok {
+				log.Printf("[WS] Connection not found for user %d when adding to room %d", cmd.userID, cmd.roomID)
+				break
+			}
+
+			room.Users[cmd.userID] = conn
+			room.JoinOrder = append(room.JoinOrder, cmd.userID)
+			log.Printf("[WS] Added user %d to room %d", cmd.userID, cmd.roomID)
+
+			// Notify other users
+			for uid, peerConn := range room.Users {
+				if uid != cmd.userID {
+					err := peerConn.WriteJSON(Message{
+						Type:   TypePeerJoined,
+						RoomID: cmd.roomID,
+						Sender: cmd.userID,
+					})
+					if err != nil {
+						log.Printf("[WS] Failed to notify user %d of new peer %d: %v", uid, cmd.userID, err)
+					} else {
+						log.Printf("[WS] Notified user %d of new peer %d", uid, cmd.userID)
+					}
+				}
+			}
+
+		case "create_room":
+			roomID := nextRoomID
+			nextRoomID++
+
+			room := &Room{
+				ID:        roomID,
+				HostID:    cmd.userID,
+				JoinOrder: []uint64{cmd.userID},
+				Users:     make(map[uint64]*websocket.Conn),
+				ReadyMap:  make(map[uint64]bool),
+			}
+			if conn, ok := connections[cmd.userID]; ok {
+				room.Users[cmd.userID] = conn
+			} else {
+				log.Printf("[WS] Connection not found for user %d when creating room", cmd.userID)
+			}
+			rooms[roomID] = room
+			log.Printf("[WS] Created room %d with host %d", roomID, cmd.userID)
+
+			resp := Message{
+				Type:   TypeRoomCreated,
+				RoomID: roomID,
+				Sender: cmd.userID,
+			}
+			if err := cmd.conn.WriteJSON(resp); err != nil {
+				log.Printf("[WS] Failed to send room-created to user %d: %v", cmd.userID, err)
+				if cmd.respChan != nil {
+					cmd.respChan <- managerCommand{err: err}
+				}
+			} else {
+				log.Printf("[WS] Sent room-created to user %d: %+v", cmd.userID, resp)
+				if cmd.respChan != nil {
+					cmd.respChan <- managerCommand{}
+				}
+			}
+
+		case "join_room":
+			room, exists := rooms[cmd.roomID]
+			if !exists {
+				log.Printf("[WS] Room %d not found for user %d", cmd.roomID, cmd.userID)
+				if cmd.conn != nil {
+					closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Room does not exist")
+					_ = cmd.conn.WriteMessage(websocket.CloseMessage, closeMsg)
+				}
+				continue
+			}
+
+			room.Users[cmd.userID] = cmd.conn
+			room.JoinOrder = append(room.JoinOrder, cmd.userID)
+			log.Printf("[WS] User %d joined room %d", cmd.userID, cmd.roomID)
+
+			if room.HostID == 0 {
+				room.HostID = cmd.userID
+				log.Printf("[WS] Set user %d as host of room %d", cmd.userID, cmd.roomID)
+			}
+
+			for uid, peerConn := range room.Users {
+				if uid != cmd.userID {
+					err := peerConn.WriteJSON(Message{
+						Type:   TypePeerJoined,
+						RoomID: room.ID,
+						Sender: cmd.userID,
+					})
+					if err != nil {
+						log.Printf("[WS] Failed to notify user %d of new peer %d: %v", uid, cmd.userID, err)
+					} else {
+						log.Printf("[WS] Notified user %d of new peer %d", uid, cmd.userID)
+					}
+				}
+			}
+
+			err := cmd.conn.WriteJSON(Message{
+				Type:   TypeCreateRoom,
+				RoomID: room.ID,
+			})
+			if err != nil {
+				log.Printf("[WS] Failed to send room info to user %d: %v", cmd.userID, err)
+			} else {
+				log.Printf("[WS] Sent room info to user %d", cmd.userID)
+			}
+
+		case "forward_or_buffer":
+			targetConn, exists := connections[cmd.message.Target]
+			inSameRoom := wm.areInSameRoom(cmd.message.RoomID, []uint64{cmd.message.Sender, cmd.message.Target})
+			log.Printf("[WS] Forward or buffer message from %d to %d (inSameRoom=%v, targetConn exists=%v)", cmd.message.Sender, cmd.message.Target, inSameRoom, exists)
+
+			if !exists || !inSameRoom {
+				candidateBuffer[cmd.message.Target] = append(candidateBuffer[cmd.message.Target], cmd.message)
+				log.Printf("[WS] Buffered message for user %d (total buffered: %d)", cmd.message.Target, len(candidateBuffer[cmd.message.Target]))
+				break
+			}
+
+			if err := targetConn.WriteJSON(cmd.message); err != nil {
+				log.Printf("[WS] Failed to forward message to %d: %v", cmd.message.Target, err)
+			} else {
+				log.Printf("[WS] Forwarded message to user %d", cmd.message.Target)
+			}
+
+		case "flush_buffered":
+			buffered := candidateBuffer[cmd.userID]
+			if len(buffered) == 0 {
+				log.Printf("[WS] No buffered messages to flush for user %d", cmd.userID)
+				break
+			}
+
+			conn, ok := connections[cmd.userID]
+			if !ok {
+				log.Printf("[WS] No connection for user %d when flushing buffer", cmd.userID)
+				break
+			}
+
+			log.Printf("[WS] Flushing %d buffered messages for user %d", len(buffered), cmd.userID)
+			var remaining []Message
+			for _, msg := range buffered {
+				if err := conn.WriteJSON(msg); err != nil {
+					log.Printf("[WS] Failed to send buffered message to user %d: %v", cmd.userID, err)
+					remaining = append(remaining, msg)
+				}
+			}
+
+			if len(remaining) > 0 {
+				candidateBuffer[cmd.userID] = remaining
+				log.Printf("[WS] %d buffered messages remain for user %d after flush", len(remaining), cmd.userID)
+			} else {
+				delete(candidateBuffer, cmd.userID)
+				log.Printf("[WS] All buffered messages flushed for user %d", cmd.userID)
+			}
+
+		case "send-peer-list":
+			room, exists := rooms[cmd.roomID]
+			if !exists {
+				log.Printf("[WS] Room %d not found when sending peer list to user %d", cmd.roomID, cmd.userID)
+				break
+			}
+			conn, ok := connections[cmd.userID]
+			if !ok {
+				log.Printf("[WS] Connection not found for user %d when sending peer list", cmd.userID)
+				break
+			}
+
+			var peerList []uint64
+			for uid := range room.Users {
+				if uid != cmd.userID {
+					peerList = append(peerList, uid)
+				}
+			}
+			log.Printf("[WS] Sending peer list to user %d: %v", cmd.userID, peerList)
+
+			err := conn.WriteJSON(Message{
+				Type:   TypePeerList,
+				RoomID: cmd.roomID,
+				Users:  peerList,
+			})
+			if err != nil {
+				log.Printf("[WS] Failed to send peer list to user %d: %v", cmd.userID, err)
+			}
+
+		case "start_p2p":
+			room, exists := rooms[cmd.roomID]
+			if !exists {
+				log.Printf("[WS] Room %d not found when starting P2P for user %d", cmd.roomID, cmd.userID)
+				break
+			}
+			conn, ok := connections[cmd.userID]
+			if !ok {
+				log.Printf("[WS] Connection not found for user %d when starting P2P", cmd.userID)
+				break
+			}
+
+			room.ReadyMap[cmd.userID] = true
+			log.Printf("[WS] User %d marked ready in room %d", cmd.userID, cmd.roomID)
+
+			err := conn.WriteJSON(Message{
+				Type:   TypeStart,
+				RoomID: cmd.roomID,
+				Sender: cmd.userID,
+			})
+			if err != nil {
+				log.Printf("[WS] Failed to send ready notification to user %d: %v", cmd.userID, err)
+			}
+
+			readyCount := 0
+			for _, ready := range room.ReadyMap {
+				if ready {
+					readyCount++
+				}
+			}
+			if readyCount == len(room.Users) {
+				log.Printf("[WS] All users ready in room %d, starting P2P signaling", cmd.roomID)
+				for uid, peerConn := range room.Users {
+					if uid != cmd.userID {
+						err := peerConn.WriteJSON(Message{
+							Type:   TypeStart,
+							RoomID: cmd.roomID,
+							Sender: cmd.userID,
+						})
+						if err != nil {
+							log.Printf("[WS] Failed to notify user %d about P2P start: %v", uid, err)
+						} else {
+							log.Printf("[WS] Notified user %d to start P2P", uid)
+						}
+					}
+				}
+			}
+
+		default:
+			log.Printf("[WS] Unknown command: %s", cmd.cmd)
+		}
+	}
 }
 
 func (wm *WebSocketManager) Authenticate(r *http.Request) bool {
-	return wm.validApiKeys[r.Header.Get("X-Api-Key")]
+	apiKey := r.Header.Get("X-Api-Key")
+	resp := make(chan any)
+	wm.commandChan <- managerCommand{
+		cmd:      "check-api-key",
+		message:  Message{APIKey: apiKey},
+		response: resp,
+	}
+	res := <-resp
+	return res.(bool)
+
 }
 
-// this handles the initial API key authentication via HTTP
 func (wm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		log.Printf("[AUTH] Invalid method %s, only POST allowed", r.Method)
 		return
 	}
 
@@ -108,49 +426,52 @@ func (wm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
+		log.Printf("[AUTH] Failed to decode request body: %v", err)
 		return
 	}
 
-	if !wm.validApiKeys[payload.ApiKey] {
+	log.Printf("[AUTH] AuthHandler called with API key: '%s'", payload.ApiKey)
+
+	resp := make(chan any)
+	wm.commandChan <- managerCommand{
+		cmd: "auth-assign-userid",
+		message: Message{
+			APIKey: payload.ApiKey,
+		},
+		response: resp,
+	}
+
+	result := <-resp
+	userID, ok := result.(uint64)
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		log.Printf("[AUTH] Unauthorized API key: '%s' (userID: %v, ok: %v)", payload.ApiKey, userID, ok)
 		return
 	}
 
-	wm.mtx.Lock()
-	userID, exists := wm.apiKeyToUserID[payload.ApiKey]
-	if !exists {
-		userID = wm.nextUserID
-		wm.apiKeyToUserID[payload.ApiKey] = userID
-		wm.nextUserID++
-	}
-	wm.mtx.Unlock()
-
-	resp := struct {
-		UserID uint64 `json:"userid"`
-	}{
-		UserID: userID,
-	}
+	log.Printf("[AUTH] API key authorized, assigned userID: %d", userID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(struct {
+		UserID uint64 `json:"userid"`
+	}{UserID: userID})
 }
 
 func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
-	if !wm.Authenticate(r) {
+	apiKey := r.Header.Get("X-Api-Key")
+	resp := make(chan any)
+
+	wm.commandChan <- managerCommand{
+		cmd:      "auth-assign-userid",
+		message:  Message{APIKey: apiKey},
+		response: resp,
+	}
+	result := <-resp
+	userID := result.(uint64)
+	if userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	apiKey := r.Header.Get("X-Api-Key")
-
-	wm.mtx.Lock()
-	userID, exists := wm.apiKeyToUserID[apiKey]
-	if !exists {
-		userID = wm.nextUserID
-		wm.apiKeyToUserID[apiKey] = userID
-		wm.nextUserID++
-	}
-	wm.mtx.Unlock()
 
 	conn, err := wm.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -158,22 +479,21 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wm.mtx.Lock()
-	if _, ok := wm.Connections[userID]; ok {
-		wm.mtx.Unlock()
-		log.Printf("[WS] Duplicate connection attempt for user %d. Denying new connection.", userID)
-
-		// disconnect second user
-		closeMsg := websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Duplicate connection detected")
-		conn.WriteMessage(websocket.CloseMessage, closeMsg)
+	resp = make(chan any)
+	wm.commandChan <- managerCommand{
+		cmd:      "register-connection",
+		message:  Message{UserID: userID},
+		conn:     conn,
+		response: resp,
+	}
+	alreadyConnected := (<-resp).(bool)
+	if alreadyConnected {
+		log.Printf("[WS] Duplicate connection for user %d", userID)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Duplicate connection"))
 		conn.Close()
 		return
 	}
-	wm.Connections[userID] = conn
-	wm.mtx.Unlock()
-
-	// Flush buffered candidates if any
-	wm.flushBufferedMessages(userID)
 
 	log.Printf("[WS] User %d connected", userID)
 
@@ -192,19 +512,16 @@ func (wm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 
-	// Cleanup on exit
-	wm.mtx.Lock()
-	delete(wm.Connections, userID)
-	wm.mtx.Unlock()
-	// conn.Close() commenting out for testing
-
+	wm.commandChan <- managerCommand{
+		cmd:     "unregister-connection",
+		message: Message{UserID: userID},
+	}
 	log.Printf("[WS] User %d disconnected", userID)
 }
 
-// sends messages to the websocket
 func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 	defer func() {
-		wm.disconnectUser(userID)
+		wm.DisconnectUser(userID)
 		conn.Close()
 		log.Printf("[WS] User %d disconnected", userID)
 	}()
@@ -213,7 +530,7 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("WebSocket read error for user %d: %v", userID, err)
-			wm.disconnectUser(userID) // clean up connection on error
+			wm.DisconnectUser(userID)
 			if ce, ok := err.(*websocket.CloseError); ok {
 				switch ce.Code {
 				case websocket.CloseNormalClosure:
@@ -238,110 +555,77 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 		}
 
 		switch msg.Type {
-
 		case TypeCreateRoom:
 			log.Printf("[WS] User %d requested to create a room", userID)
-
-			roomID := wm.CreateRoom(userID)
-
-			// Set initial host
-			wm.mtx.Lock()
-			room := wm.Rooms[roomID]
-			room.HostID = userID
-			room.JoinOrder = append(room.JoinOrder, userID)
-			wm.mtx.Unlock()
-
-			resp := Message{
-				Type:   TypeRoomCreated,
-				RoomID: roomID,
-				Sender: userID,
+			respChan := make(chan managerCommand)
+			wm.commandChan <- managerCommand{
+				cmd:      "create-room",
+				userID:   userID,
+				conn:     conn,
+				respChan: respChan,
 			}
-			if err := conn.WriteJSON(resp); err != nil {
-				log.Printf("[WS] Failed to send room-created to user %d: %v", userID, err)
-			} else {
-				log.Printf("[WS] Sent room-created to user %d: %+v", userID, resp)
+			resp := <-respChan
+			if resp.err != nil {
+				log.Printf("[WS] Error creating room: %v", resp.err)
+			}
+
+			wm.commandChan <- managerCommand{
+				cmd:    "flush_buffered",
+				userID: userID,
 			}
 
 		case TypeJoin:
-			wm.mtx.Lock()
-			room, exists := wm.Rooms[msg.RoomID]
-			if !exists {
-				wm.mtx.Unlock()
-				log.Printf("[WS] Room %d not found for user %d", msg.RoomID, userID)
-				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Room does not exist")
-				_ = conn.WriteMessage(websocket.CloseMessage, closeMsg)
-				return
+			wm.commandChan <- managerCommand{
+				cmd:    "join-room",
+				userID: userID,
+				conn:   conn,
+				roomID: msg.RoomID,
 			}
 
-			room.Users[userID] = conn
-			room.JoinOrder = append(room.JoinOrder, userID)
-
-			// If no host set yet (paranoia check)
-			if room.HostID == 0 {
-				room.HostID = userID
+			wm.commandChan <- managerCommand{
+				cmd:    "flush_buffered",
+				userID: userID,
 			}
-			wm.mtx.Unlock()
-
-			// Notify others
-			for uid, peerConn := range room.Users {
-				if uid != userID {
-					_ = peerConn.WriteJSON(Message{
-						Type:   TypePeerJoined,
-						RoomID: msg.RoomID,
-						Sender: userID,
-					})
-				}
-			}
-
-			_ = conn.WriteJSON(Message{
-				Type:   TypeCreateRoom,
-				RoomID: msg.RoomID,
-			})
-
-			log.Printf("[WS] User %d joined room %d", userID, msg.RoomID)
-			wm.sendPeerListToUser(msg.RoomID, userID)
 
 		case TypeOffer, TypeAnswer, TypeICE:
 			log.Printf("[WS] Forwarding %s from %d to %d in room %d", msg.Type, msg.Sender, msg.Target, msg.RoomID)
-			wm.forwardOrBuffer(userID, msg)
+			wm.commandChan <- managerCommand{
+				cmd:     "forward_or_buffer",
+				message: msg,
+			}
 
 		case TypePeerList, "peer-list-request":
-
-			wm.sendPeerListToUser(msg.RoomID, userID)
+			wm.commandChan <- managerCommand{
+				cmd:    "send_peer_list",
+				userID: userID,
+				roomID: msg.RoomID,
+			}
 
 		case TypeStart:
 			log.Printf("[WS] Received 'start' from user %d in room %d", msg.Sender, msg.RoomID)
-
-			wm.mtx.Lock()
-			room, exists := wm.Rooms[msg.RoomID]
-			wm.mtx.Unlock()
-
-			if !exists {
-				log.Printf("[WS] Room %d does not exist", msg.RoomID)
-				return
+			wm.commandChan <- managerCommand{
+				cmd:    "start_p2p",
+				roomID: msg.RoomID,
 			}
-
-			for uid, peerConn := range room.Users {
-				if peerConn != nil {
-					log.Printf("[WS] Closing connection to user %d for P2P switch", uid)
-					_ = peerConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
-					_ = peerConn.Close()
-				}
-			}
-
-			wm.mtx.Lock()
-			delete(wm.Rooms, msg.RoomID)
-			wm.mtx.Unlock()
 
 		case TypeDisconnect:
-			go wm.HandleDisconnect(msg)
+			wm.commandChan <- managerCommand{
+				cmd:     "disconnect",
+				message: msg,
+			}
 
 		case TypeText:
-			log.Printf("[WS] Text from %d: %s", userID, msg.Content)
+			wm.commandChan <- managerCommand{
+				cmd:     "text",
+				userID:  userID,
+				message: msg,
+			}
 
 		case "start-session":
-
-			log.Printf("[WS] Received start-session from peer %d", userID)
+			wm.commandChan <- managerCommand{
+				cmd:    "start-session",
+				userID: userID,
+			}
 
 		default:
 			log.Printf("[WS] Unknown message type: %s", msg.Type)
@@ -349,238 +633,71 @@ func (wm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
 	}
 }
 
-func (wm *WebSocketManager) sendPeerListToUser(roomID uint64, userID uint64) {
-	wm.mtx.RLock()
-	room, exists := wm.Rooms[roomID]
-	wm.mtx.RUnlock()
+//func (wm *WebSocketManager) sendPeerListToUser(roomID, userID uint64) {
+//	wm.commandChan <- managerCommand{
+//		cmd:    "send_peer_list",
+//		roomID: roomID,
+//		userID: userID,
+//	}
+//}
 
-	if exists {
-		var peerList []uint64
-		for uid := range room.Users {
-			if uid != userID {
-				peerList = append(peerList, uid)
-			}
-		}
-
-		if conn, ok := wm.Connections[userID]; ok {
-			conn.WriteJSON(Message{
-				Type:   TypePeerList,
-				RoomID: roomID,
-				Users:  peerList,
-			})
-		}
-	}
-}
-func (wm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
-	wm.mtx.RLock()
-	conn, exists := wm.Connections[msg.Target]
-	inSameRoom := wm.AreInSameRoom(msg.RoomID, []uint64{msg.Sender, msg.Target})
-	wm.mtx.RUnlock()
-
-	log.Printf("[WS DEBUG] forwardOrBuffer type=%s from=%d to=%d exists=%v sameRoom=%v",
-		msg.Type, senderID, msg.Target, exists, inSameRoom)
-
-	if !exists || !inSameRoom {
-		log.Printf("[WS DEBUG] Buffering %s from %d to %d", msg.Type, msg.Sender, msg.Target)
-		wm.mtx.Lock()
-		wm.candidateBuffer[msg.Target] = append(wm.candidateBuffer[msg.Target], msg)
-		wm.mtx.Unlock()
-		return
-	}
-
-	if err := conn.WriteJSON(msg); err != nil {
-		log.Printf("[WS ERROR] Failed to send %s from %d to %d: %v", msg.Type, msg.Sender, msg.Target, err)
-		go wm.HandleDisconnect(msg)
-	} else {
-		log.Printf("[WS DEBUG] Sent %s from %d to %d", msg.Type, msg.Sender, msg.Target)
-	}
-}
+//func (wm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
+//	wm.commandChan <- managerCommand{
+//		cmd:     "forward_or_buffer",
+//		userID:  senderID,
+//		message: msg,
+//	}
+// }
 
 func (wm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
-	wm.mtx.Lock()
-	defer wm.mtx.Unlock()
-
-	room, exists := wm.Rooms[roomID]
-	if !exists {
-		room = &Room{
-			ID:       roomID,
-			Users:    make(map[uint64]*websocket.Conn),
-			ReadyMap: make(map[uint64]bool),
-		}
-		wm.Rooms[roomID] = room
-	}
-	room.Users[userID] = wm.Connections[userID]
-
-	for uid, conn := range room.Users {
-		if uid != userID {
-			conn.WriteJSON(Message{
-				Type:   TypePeerJoined,
-				RoomID: roomID,
-				Sender: userID,
-			})
-		}
+	wm.commandChan <- managerCommand{
+		cmd:    "add_user_to_room",
+		roomID: roomID,
+		userID: userID,
 	}
 }
 
-func (wm *WebSocketManager) flushBufferedMessages(userID uint64) {
-	wm.mtx.Lock()
-	defer wm.mtx.Unlock()
+//func (wm *WebSocketManager) flushBufferedMessages(userID uint64) {
+//	wm.commandChan <- managerCommand{
+//		cmd:    "flush_buffer",
+//		userID: userID,
+//	}
+//}
 
-	buffered, ok := wm.candidateBuffer[userID]
-	if !ok {
-		return
+func (wm *WebSocketManager) CreateRoom(userID uint64) {
+	wm.commandChan <- managerCommand{
+		cmd:    "create_room",
+		userID: userID,
 	}
-
-	conn, exists := wm.Connections[userID]
-	if !exists {
-		return
-	}
-
-	var remaining []Message
-	for _, msg := range buffered {
-		if err := conn.WriteJSON(msg); err != nil {
-			log.Printf("[WS ERROR] Failed to flush buffered message to %d: %v", userID, err)
-			remaining = append(remaining, msg)
-		}
-	}
-
-	if len(remaining) > 0 {
-		wm.candidateBuffer[userID] = remaining
-	} else {
-		delete(wm.candidateBuffer, userID)
-	}
-
 }
 
-// creates room for peers
-func (wm *WebSocketManager) CreateRoom(userID uint64) uint64 {
-	wm.mtx.Lock()
-	defer wm.mtx.Unlock()
-
-	roomID := wm.nextRoomID
-	wm.nextRoomID++
-	wm.Rooms[roomID] = &Room{
-		ID:    roomID,
-		Users: map[uint64]*websocket.Conn{userID: wm.Connections[userID]},
+func (wm *WebSocketManager) areInSameRoom(roomID uint64, userIDs []uint64) bool {
+	resp := make(chan any)
+	wm.commandChan <- managerCommand{
+		cmd:      "same_room_query",
+		roomID:   roomID,
+		message:  Message{Users: userIDs},
+		response: resp,
 	}
-	return roomID
+	result := <-resp
+	inRoom, ok := result.(bool)
+	return ok && inRoom
 }
 
-func (wm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool {
-	wm.mtx.RLock()
-	defer wm.mtx.RUnlock()
-
-	room, exists := wm.Rooms[roomID]
-	if !exists {
-		return false
+func (wm *WebSocketManager) DisconnectUser(userID uint64) {
+	wm.commandChan <- managerCommand{
+		cmd:    "disconnect_user",
+		userID: userID,
 	}
-
-	for _, uid := range userIDs {
-		if _, ok := room.Users[uid]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
-func (wm *WebSocketManager) disconnectUser(userID uint64) {
-	wm.mtx.Lock()
-	defer wm.mtx.Unlock()
-
-	// Close and remove connection
-	if conn, exists := wm.Connections[userID]; exists {
-		conn.Close()
-		delete(wm.Connections, userID)
-	}
-
-	// remove from candidateBuffer
-	delete(wm.candidateBuffer, userID)
-
-	// remove from rooms and notify others
-	for roomID, room := range wm.Rooms {
-		if _, inRoom := room.Users[userID]; inRoom {
-			delete(room.Users, userID)
-
-			// notify peers
-			for _, conn := range room.Users {
-				if conn != nil {
-					_ = conn.WriteJSON(Message{
-						Type:   "peer-left",
-						RoomID: roomID,
-						Sender: userID,
-					})
-				}
-			}
-
-			log.Printf("[WS] User %d removed from room %d", userID, roomID)
-
-			// delete room if empty
-			if len(room.Users) == 0 {
-				delete(wm.Rooms, roomID)
-				log.Printf("[WS] Room %d deleted because it is empty", roomID)
-			}
-		}
-	}
-
-	// released  apikey from the serveer
-	for apiKey, id := range wm.apiKeyToUserID {
-		if id == userID {
-			delete(wm.apiKeyToUserID, apiKey)
-			log.Printf("[WS] API key %s released for user %d", apiKey, userID)
-			break
-		}
-	}
-
-}
-
-// handles the disconnection gracefully
 func (wm *WebSocketManager) HandleDisconnect(msg Message) {
-	roomID := msg.RoomID
-	userID := msg.Sender
-
-	wm.mtx.Lock()
-	room, exists := wm.Rooms[roomID]
-	if !exists {
-		wm.mtx.Unlock()
-		return
+	wm.commandChan <- managerCommand{
+		cmd:    "handle_disconnect",
+		userID: msg.Sender,
 	}
-
-	delete(room.Users, userID)
-
-	// remove from JoinOrder
-	for i, id := range room.JoinOrder {
-		if id == userID {
-			room.JoinOrder = slices.Delete(room.JoinOrder, i, i+1)
-			break
-		}
-	}
-
-	// reassign host if needed
-	if room.HostID == userID {
-		if len(room.JoinOrder) > 0 {
-			newHostID := room.JoinOrder[0]
-			room.HostID = newHostID
-			newHostConn := room.Users[newHostID]
-
-			if newHostConn != nil {
-				_ = newHostConn.WriteJSON(Message{
-					Type:   "host-info",
-					Sender: newHostID,
-				})
-			}
-		} else {
-			room.HostID = 0
-		}
-	}
-
-	// clean up empty room
-	if len(room.Users) == 0 {
-		delete(wm.Rooms, roomID)
-	}
-	wm.mtx.Unlock()
 }
 
-// keeps server alive
 func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -598,72 +715,4 @@ func (wm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
 			failures = 0
 		}
 	}
-}
-
-func StartServer(port string) (*http.Server, string) {
-	// the server address and port
-	host := os.Getenv("SERVER_HOST")
-	if host == "" {
-		host = "127.0.0.1"
-	}
-
-	// Combine the address and port
-	serverUrl := fmt.Sprintf("%s:%s", host, port)
-
-	listener, err := net.Listen("tcp", serverUrl)
-	if err != nil {
-		log.Fatalf("Error starting server: %v", err)
-	}
-
-	// update the URL with the assigned port
-	serverUrl = listener.Addr().String()
-	log.Printf("[SERVER] Starting on %s\n", serverUrl)
-
-	apiKeyPath := os.Getenv("APIKEY_PATH")
-	if apiKeyPath == "" {
-		apiKeyPath = "apikeys.txt"
-	}
-
-	manager := NewWebSocketManager()
-
-	apiKeys, err := LoadValidApiKeys(apiKeyPath)
-	if err != nil {
-		log.Printf("[SERVER] Failed to load API keys: %v", err)
-	}
-	manager.SetValidApiKeys(apiKeys)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/auth", manager.AuthHandler)
-	mux.HandleFunc("/ws", manager.Handler)
-
-	server := &http.Server{
-		Addr:    serverUrl,
-		Handler: mux,
-	}
-
-	go func() {
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("[SERVER] Error: %v", err)
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
-
-	return server, serverUrl
-}
-
-// LoadValidApiKeys loads API keys from a file
-func LoadValidApiKeys(path string) (map[string]bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("could not open file: %v", err)
-	}
-	defer file.Close()
-
-	keys := make(map[string]bool)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		keys[scanner.Text()] = true
-	}
-	return keys, scanner.Err()
 }

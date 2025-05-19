@@ -38,9 +38,9 @@ func (c *Client) listen() {
 
 			c.handleMessage(msg)
 		}
+
 	}
 }
-
 func (c *Client) handleMessage(msg Message) {
 	switch msg.Type {
 	case MessageTypeRoomCreated:
@@ -57,16 +57,16 @@ func (c *Client) handleMessage(msg Message) {
 		c.LeaveServer()
 		return
 	case MessageTypeSendMessage:
-		// handle text + binary in real-time
 		if msg.Text != "" {
 			log.Printf("Text message from %d: %s", msg.Sender, msg.Text)
 		}
 		if msg.Payload.Data != nil {
 			log.Printf("Binary message from %d (%s): %d bytes", msg.Sender, msg.Payload.DataType, len(msg.Payload.Data))
 		}
-		_ = c.SendDataToPeer(msg.Target, []byte(msg.Text))
+		if err := c.SendDataToPeer(msg.Target, []byte(msg.Text)); err != nil {
+			log.Printf("[CLIENT SIGNALING] Failed to send data to peer: %v", err)
+		}
 	}
-
 	if c.onMessage != nil {
 		c.onMessage(msg)
 	}

@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	server, wsURL := server.StartServer("") // Correct address format
+	server, wsURL := server.StartServer("")
 
 	log.Printf("[SERVER] WebSocket server started at %s", wsURL)
 

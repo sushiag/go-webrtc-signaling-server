@@ -14,7 +14,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	server, serverUrl := server.StartServer("0")
 	defer server.Close()
 
-	apiKeyA, apiKeyB, apiKeyC, apiKeyD := "valid-api-key-3", "valid-api-key-4", "key1", "key2"
+	apiKeyA, apiKeyB, apiKeyC, apiKeyD := "valid-api-key-1", "valid-api-key-2", "valid-api-key-3", "valid-api-key-4"
 
 	clientA := client.NewClient(serverUrl)
 	clientB := client.NewClient(serverUrl)
@@ -70,5 +70,5 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	t.Logf("All clients successfully exchanged messages for 1 round.")
+	t.Logf("All clients successfully exchanged messages")
 }

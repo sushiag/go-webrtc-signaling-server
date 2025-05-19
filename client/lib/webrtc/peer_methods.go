@@ -32,7 +32,7 @@ func (p *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(SignalingMe
 			close(done)
 		},
 	}
-	<-done // Optional: wait for operation to complete
+	<-done
 }
 
 func (p *Peer) Cancel() {
@@ -41,7 +41,7 @@ func (p *Peer) Cancel() {
 	})
 }
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
-	// Use Load to retrieve the peer from sync.Map
+
 	peerInterface, ok := pm.Peers.Load(peerID)
 	if !ok {
 		log.Printf("[SEND ERROR] Peer %d not found", peerID)
@@ -50,13 +50,11 @@ func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
 
 	peer := peerInterface.(*Peer)
 
-	// Wait until the data channel is available
 	if peer.DataChannel == nil {
 		log.Printf("[SEND ERROR] Peer %d has no DataChannel", peerID)
 		return fmt.Errorf("peer %d has no DataChannel", peerID)
 	}
 
-	// Make sure the DataChannel is open
 	if peer.DataChannel.ReadyState() != webrtc.DataChannelStateOpen {
 		log.Printf("[SEND ERROR] DataChannel for peer %d is not open", peerID)
 		return fmt.Errorf("data channel for peer %d is not open", peerID)

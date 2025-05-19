@@ -11,10 +11,9 @@ import (
 type Client struct {
 	Websocket   *websocket.Client
 	PeerManager *webrtc.PeerManager
-	IsHost      bool
 }
 
-// NewClient() creates a wrapper with WebSocket signaling (PeerManager initialized later).
+// NewClient() creates a wrapper with WebSocket signaling
 func NewClient(wsEndpoint string) *Client {
 	clientwebsocket := websocket.NewClient(wsEndpoint)
 	return &Client{
@@ -22,7 +21,7 @@ func NewClient(wsEndpoint string) *Client {
 	}
 }
 
-// Connect() handles authentication, then sets up PeerManager and signaling message handler.
+// Connect() handles authentication, then sets up PeerManager and signaling message handler
 func (w *Client) Connect() error {
 	if err := w.Websocket.PreAuthenticate(); err != nil {
 		return fmt.Errorf("failed to authenticate: %v", err)
@@ -68,13 +67,11 @@ func (w *Client) Connect() error {
 }
 
 func (w *Client) CreateRoom() error {
-	w.IsHost = true
 	log.Println("[CLIENT] Set as host after creating room.")
 	return w.Websocket.Create()
 }
 
 func (w *Client) JoinRoom(roomID string) error {
-	w.IsHost = false
 	return w.Websocket.JoinRoom(roomID)
 }
 
@@ -98,9 +95,6 @@ func (w *Client) Close() {
 	if w.Websocket != nil {
 		w.Websocket.Close()
 	}
-	if w.PeerManager != nil {
-		w.PeerManager.CloseAll()
-	}
 }
 
 func (w *Client) SetServerURL(url string) {
@@ -109,4 +103,8 @@ func (w *Client) SetServerURL(url string) {
 
 func (w *Client) SetApiKey(key string) {
 	w.Websocket.SetApiKey(key)
+}
+
+func (w *Client) RetrySignaling(maxRetries int) {
+	w.Websocket.ConnectWithRetry(2)
 }

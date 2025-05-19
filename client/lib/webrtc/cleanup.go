@@ -10,7 +10,6 @@ func (pm *PeerManager) CloseAll() {
 	pm.Peers.Range(func(key, value interface{}) bool {
 		peer := value.(*Peer)
 
-		// Send a command to the peer's goroutine to close the connection and cancel context
 		peer.cmdChan <- PeerCommand{
 			Action: func(p *Peer) {
 				if p.Connection != nil {
@@ -21,7 +20,6 @@ func (pm *PeerManager) CloseAll() {
 			},
 		}
 
-		// Remove peer from map after command sent (not inside peer goroutine)
 		pm.Peers.Delete(key)
 		return true
 	})
@@ -47,7 +45,6 @@ func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
 		peer := value.(*Peer)
 		resultChan := make(chan bool)
 
-		// Ask peer goroutine to report connection status
 		peer.cmdChan <- PeerCommand{
 			Action: func(p *Peer) {
 				resultChan <- p.isConnected
@@ -59,7 +56,7 @@ func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
 
 		if !connected {
 			allConnected = false
-			return false // stop iteration early
+			return false
 		}
 		return true
 	})
@@ -86,7 +83,7 @@ func (pm *PeerManager) Close() {
 func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		// Load the peer from the sync.Map
+
 		peer, ok := pm.Peers.Load(peerID)
 		if !ok {
 			if time.Now().After(deadline) {
@@ -96,18 +93,15 @@ func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) 
 			continue
 		}
 
-		// Type assertion to ensure we have a valid *Peer
 		p, ok := peer.(*Peer)
 		if !ok {
 			return fmt.Errorf("invalid peer data for %d", peerID)
 		}
 
-		// Check if the peer's DataChannel is available
 		if p.DataChannel != nil {
 			return nil
 		}
 
-		// Timeout check
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
 		}

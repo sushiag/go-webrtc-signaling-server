@@ -6,24 +6,46 @@ import (
 )
 
 func (c *Client) Send(msg Message) error {
-	if c.isClosed {
-		return fmt.Errorf("connection is closed")
-	}
-	c.SendMutex.Lock()
-	defer c.SendMutex.Unlock()
-
-	if msg.RoomID == 0 {
-		msg.RoomID = c.RoomID
-	}
-	if msg.Sender == 0 {
-		msg.Sender = c.UserID
+	if c.isSendLoopStarted.CompareAndSwap(false, true) {
+		go c.sendLoop()
 	}
 
-	if err := c.Conn.WriteJSON(msg); err != nil {
-		log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type, err)
-		return err
+	select {
+	case c.sendQueue <- msg:
+		return nil
+	case <-c.doneCh:
+		return fmt.Errorf("client is closed")
 	}
-	return nil
+}
+
+func (c *Client) maybeStartListen() {
+	if c.isListenStarted.CompareAndSwap(false, true) {
+		go c.listen()
+	}
+}
+
+func (c *Client) sendLoop() {
+	for {
+		select {
+		case msg := <-c.sendQueue:
+			if c.Conn == nil || c.isClosed.Load() {
+				log.Printf("[CLIENT SIGNALING] Cannot send, connection is closed.")
+				continue
+			}
+			if msg.RoomID == 0 {
+				msg.RoomID = c.RoomID
+			}
+			if msg.Sender == 0 {
+				msg.Sender = c.UserID
+			}
+			err := c.Conn.WriteJSON(msg)
+			if err != nil {
+				log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type, err)
+			}
+		case <-c.doneCh:
+			return
+		}
+	}
 }
 
 func (c *Client) SendDataToPeer(targetID uint64, data []byte) error {
