@@ -59,13 +59,11 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
 		for _, sender := range clients {
-			sender.PeerManager.Peers.Range(func(key, value any) bool {
-				peerID := key.(uint64)
+			for peerID := range sender.PeerManager.Peers {
 				message := "Round " + strconv.Itoa(round) + " from client " + strconv.FormatUint(sender.Websocket.UserID, 10)
 				err := sender.SendMessageToPeer(peerID, message)
 				assert.NoErrorf(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
-				return true
-			})
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

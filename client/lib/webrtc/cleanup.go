@@ -4,108 +4,88 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/pion/webrtc/v4"
 )
 
 func (pm *PeerManager) CloseAll() {
-	pm.Peers.Range(func(key, value interface{}) bool {
-		peer := value.(*Peer)
+	pm.managerQueue <- func() {
+		for id, peer := range pm.Peers {
+			if peer.Connection != nil {
+				_ = peer.Connection.Close()
+			}
 
-		peer.cmdChan <- PeerCommand{
-			Action: func(p *Peer) {
-				if p.Connection != nil {
-					_ = p.Connection.Close()
-				}
-				p.Cancel()
-				log.Printf("[PEER] Closed connection to peer %d", p.ID)
-			},
+			delete(pm.Peers, id)
+			log.Printf("[PEER] Closed connection to peer %d", id)
 		}
-
-		pm.Peers.Delete(key)
-		return true
-	})
+	}
 }
 
 func (pm *PeerManager) GetPeerIDs() []uint64 {
-	ids := make([]uint64, 0)
-
-	pm.Peers.Range(func(_, value interface{}) bool {
-		if peer, ok := value.(*Peer); ok {
-			ids = append(ids, peer.ID)
+	result := make(chan []uint64, 1)
+	pm.managerQueue <- func() {
+		ids := make([]uint64, 0, len(pm.Peers))
+		for id := range pm.Peers {
+			ids = append(ids, id)
 		}
-		return true
-	})
-
-	return ids
+		result <- ids
+	}
+	return <-result
 }
-
 func (pm *PeerManager) CheckAllConnectedAndDisconnect() error {
-	allConnected := true
+	result := make(chan error, 1)
 
-	pm.Peers.Range(func(_, value interface{}) bool {
-		peer := value.(*Peer)
-		resultChan := make(chan bool)
-
-		peer.cmdChan <- PeerCommand{
-			Action: func(p *Peer) {
-				resultChan <- p.isConnected
-			},
+	pm.managerQueue <- func() {
+		allConnected := true
+		for _, peer := range pm.Peers {
+			if peer.DataChannel == nil || peer.DataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+				allConnected = false
+				break
+			}
 		}
 
-		connected := <-resultChan
-		close(resultChan)
-
-		if !connected {
-			allConnected = false
-			return false
+		if allConnected {
+			log.Println("[SIGNALING] All peers connected. Closing signaling client for full P2P.")
+			go pm.Close()
+			result <- nil
+		} else {
+			log.Println("[SIGNALING] Not all peers connected.")
+			result <- fmt.Errorf("not all peers connected")
 		}
-		return true
-	})
-
-	if !allConnected {
-		return fmt.Errorf("not all peers connected")
 	}
 
-	log.Println("[SIGNALING] All peers connected. Closing signaling client for full P2P.")
-	pm.Close()
-	return nil
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("timeout while verifying peer connections")
+	}
 }
 
 func (pm *PeerManager) Close() {
-	pm.Peers.Range(func(_, value interface{}) bool {
-		if peer, ok := value.(*Peer); ok && peer.Connection != nil {
-			_ = peer.Connection.Close()
-		}
-		return true
-	})
+	pm.CloseAll()
 	log.Println("[SIGNALING] PeerManager closed.")
 }
-
 func (pm *PeerManager) WaitForDataChannel(peerID uint64, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
+	result := make(chan error, 1)
 
-		peer, ok := pm.Peers.Load(peerID)
+	pm.managerQueue <- func() {
+		peer, ok := pm.Peers[peerID]
 		if !ok {
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
-			}
-			time.Sleep(50 * time.Millisecond)
-			continue
+			result <- fmt.Errorf("peer %d not found", peerID)
+			return
 		}
-
-		p, ok := peer.(*Peer)
-		if !ok {
-			return fmt.Errorf("invalid peer data for %d", peerID)
+		if peer.DataChannel != nil && peer.DataChannel.ReadyState() == webrtc.DataChannelStateOpen {
+			result <- nil
+		} else {
+			result <- fmt.Errorf("data channel not open for peer %d", peerID)
 		}
+	}
 
-		if p.DataChannel != nil {
-			return nil
-		}
-
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
-		}
-
-		time.Sleep(50 * time.Millisecond)
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(timeout):
+		return fmt.Errorf("timeout waiting for DataChannel for peer %d", peerID)
 	}
 }

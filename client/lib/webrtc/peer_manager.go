@@ -5,19 +5,43 @@ import (
 )
 
 func (pm *PeerManager) GracefulShutdown() {
-	log.Println("[SHUTDOWN] Initiating graceful shutdown...")
+	pm.managerQueue <- func() {
+		log.Println("[SHUTDOWN] Initiating graceful shutdown...")
+		for id := range pm.Peers {
+			log.Printf("[SHUTDOWN] Closing peer %d", id)
+			delete(pm.Peers, id)
+		}
+		log.Println("[SHUTDOWN] All peers closed.")
+	}
+}
 
-	var keys []uint64
-	pm.Peers.Range(func(key, _ any) bool {
-		keys = append(keys, key.(uint64))
-		return true
-	})
-	for _, id := range keys {
-		value, _ := pm.Peers.Load(id)
-		peer := value.(*Peer)
-		peer.Cancel()
-		pm.Peers.Delete(id)
+func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
+	if len(peerIDs) == 0 {
+		return
 	}
 
-	log.Println("[SHUTDOWN] All peers closed.")
+	pm.managerQueue <- func() {
+		minID := peerIDs[0]
+		for _, id := range peerIDs[1:] {
+			if id < minID {
+				minID = id
+			}
+		}
+		pm.HostID = minID
+		log.Printf("[HOST] Initial host set to: %d", pm.HostID)
+	}
+}
+
+func (pm *PeerManager) findNextHost() uint64 {
+	var nextHostID uint64 = 0
+	for id := range pm.Peers {
+		if nextHostID == 0 || id < nextHostID {
+			nextHostID = id
+		}
+	}
+	return nextHostID
+}
+
+func (pm *PeerManager) OnPeerCreated(f func(*Peer, SignalingMessage)) {
+	pm.onPeerCreated = f
 }
