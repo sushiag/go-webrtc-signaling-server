@@ -41,6 +41,11 @@ func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc fun
 		}
 		switch msg.Type {
 		case "peer-list":
+			if pm.UserID == pm.HostID {
+				log.Println("[WEBRTC SIGNALING] I am the host. Skipping offer creation.")
+				return
+			}
+
 			for _, peerID := range msg.Users {
 				if peerID == pm.UserID {
 					continue
@@ -56,6 +61,10 @@ func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc fun
 			}
 
 		case "offer":
+			if pm.UserID == pm.HostID {
+				log.Println("[WEBRTC SIGNALING] I am the host. Skipping offer creation.")
+				return
+			}
 			log.Printf("[WEBRTC SIGNALING] Received offer from %d", msg.Sender)
 			if err := pm.HandleOffer(msg, sendFunc); err != nil {
 				log.Printf("[WEBRTC SIGNALING] Handle offer error: %v", err)

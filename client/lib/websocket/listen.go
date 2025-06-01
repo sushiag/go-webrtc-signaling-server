@@ -46,7 +46,7 @@ func (c *Client) handleMessage(msg Message) {
 	case MessageTypeRoomCreated:
 		fmt.Printf("Room created: %d\n", msg.RoomID)
 		c.RoomID = msg.RoomID
-		c.RequestPeerList()
+		// c.RequestPeerList()
 	case MessageTypeRoomJoined:
 		c.RoomID = msg.RoomID
 		c.RequestPeerList()

@@ -14,11 +14,12 @@ func (pm *PeerManager) GracefulShutdown() {
 		log.Println("[SHUTDOWN] All peers closed.")
 	}
 }
-
 func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
 	if len(peerIDs) == 0 {
 		return
 	}
+
+	done := make(chan struct{})
 
 	pm.managerQueue <- func() {
 		minID := peerIDs[0]
@@ -29,7 +30,10 @@ func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
 		}
 		pm.HostID = minID
 		log.Printf("[HOST] Initial host set to: %d", pm.HostID)
+		close(done)
 	}
+
+	<-done // wait until HostID is set before continuing
 }
 
 func (pm *PeerManager) findNextHost() uint64 {

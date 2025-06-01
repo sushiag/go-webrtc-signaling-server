@@ -209,9 +209,7 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 
 	case TypeJoin:
 		log.Printf("[User %d] requested to join room: %d", msg.Sender, msg.RoomID)
-
 		wsm.AddUserToRoom(msg.RoomID, msg.Sender)
-		log.Printf("[WS] User %d joined room %d", msg.Sender, msg.RoomID)
 
 	case TypeOffer, TypeAnswer, TypeICE:
 		room := wsm.Rooms[msg.RoomID]
@@ -272,7 +270,6 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 	}
 }
 
-// handleStart handles the start message - closes connections and cleans the room
 func (wsm *WebSocketManager) handleStart(msg Message) {
 	roomID := msg.RoomID
 
@@ -292,7 +289,6 @@ func (wsm *WebSocketManager) handleStart(msg Message) {
 
 	delete(wsm.Rooms, roomID)
 }
-
 func (wsm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 	room, exists := wsm.Rooms[roomID]
 	if !exists {
@@ -300,30 +296,37 @@ func (wsm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 			ID:       roomID,
 			Users:    make(map[uint64]*websocket.Conn),
 			ReadyMap: make(map[uint64]bool),
+			HostID:   userID, // added to solve the problem with  host not being track
 		}
 		wsm.Rooms[roomID] = room
 	}
-	room.Users[userID] = wsm.Connections[userID]
 
-	// semds notif that other users in the room the has joined
-	for uid, conn := range room.Users {
-		if uid != userID {
-			_ = wsm.SafeWriteJSON(conn, Message{
-				Type:   TypePeerJoined,
-				RoomID: roomID,
-				Sender: userID,
-			})
-		}
-	}
-	if _, ok := wsm.Connections[userID]; !ok {
-		log.Printf("[WS WARNING] User %d not connected, cannot join room", userID)
+	if _, alreadyJoined := room.Users[userID]; alreadyJoined {
+		log.Printf("[WS] User %d is already in room %d, skipping join", userID, roomID)
 		return
 	}
+
+	room.Users[userID] = wsm.Connections[userID]
+	var peers []uint64
+	for uid := range room.Users {
+		if uid != userID {
+			peers = append(peers, uid)
+		}
+	}
+
+	// Notify the new user of current peers
+	if conn, ok := wsm.Connections[userID]; ok {
+		_ = wsm.SafeWriteJSON(conn, Message{
+			Type:   TypePeerList,
+			RoomID: roomID,
+			Users:  peers,
+		})
+	}
+
 	log.Printf("[WS] User %d joined room %d", userID, roomID)
 }
 
 func (wsm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
-	// Check if the target connection exists and if both users are in the same room
 	conn, exists := wsm.Connections[msg.Target]
 	inSameRoom := wsm.AreInSameRoom(msg.RoomID, []uint64{msg.Sender, msg.Target})
 
@@ -332,15 +335,12 @@ func (wsm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
 
 	if !exists || !inSameRoom {
 		log.Printf("[WS DEBUG] Buffering %s from %d to %d", msg.Type, msg.Sender, msg.Target)
-		// Buffer the message for the target user
 		wsm.candidateBuffer[msg.Target] = append(wsm.candidateBuffer[msg.Target], msg)
 		return
 	}
 
-	// Send the message directly if the connection exists
 	if err := wsm.SafeWriteJSON(conn, msg); err != nil {
 		log.Printf("[WS ERROR] Failed to send %s from %d to %d: %v", msg.Type, msg.Sender, msg.Target, err)
-		// Handle disconnection if sending fails
 		wsm.disconnectChan <- msg.Sender
 	} else {
 		log.Printf("[WS DEBUG] Sent %s from %d to %d", msg.Type, msg.Sender, msg.Target)
@@ -416,22 +416,33 @@ func (wsm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool
 		return false
 	}
 
-	for _, uid := range userIDs {
-		if _, ok := room.Users[uid]; !ok {
+	for _, id := range userIDs {
+		if _, ok := room.Users[id]; !ok {
 			return false
 		}
 	}
 	return true
 }
 
-// creates room for peers
-func (wsm *WebSocketManager) CreateRoom(userID uint64) uint64 {
+func (wsm *WebSocketManager) CreateRoom(hostID uint64) uint64 {
 	roomID := wsm.nextRoomID
 	wsm.nextRoomID++
-	wsm.Rooms[roomID] = &Room{
-		ID:    roomID,
-		Users: map[uint64]*websocket.Conn{userID: wsm.Connections[userID]},
+
+	conn, exists := wsm.Connections[hostID]
+	if !exists {
+		log.Printf("[WS WARNING] Host %d not connected; cannot add to new room", hostID)
+		return roomID
 	}
+
+	room := &Room{
+		ID:        roomID,
+		Users:     map[uint64]*websocket.Conn{hostID: conn},
+		ReadyMap:  map[uint64]bool{hostID: false},
+		JoinOrder: []uint64{hostID},
+		HostID:    hostID,
+	}
+	wsm.Rooms[roomID] = room
+
 	return roomID
 }
 
