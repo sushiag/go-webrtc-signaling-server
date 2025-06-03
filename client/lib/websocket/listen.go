@@ -54,7 +54,7 @@ func (c *Client) handleMessage(msg Message) {
 		if c.onMessage != nil {
 			c.onMessage(msg)
 		}
-		c.LeaveServer()
+		c.CloseSignaling()
 		return
 	case MessageTypeSendMessage:
 		if msg.Text != "" {

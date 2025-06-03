@@ -248,7 +248,29 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 		log.Printf("[WS] Text from %d: %s", msg.Sender, msg.Content)
 
 	case TypeStartP2P:
-		log.Printf("[WS] Received start-session from peer %d", msg.Sender)
+		log.Printf("[WS] Received start-session from peer %d in room %d", msg.Sender, msg.RoomID)
+		room, exists := wsm.Rooms[msg.RoomID]
+		if !exists {
+			log.Printf("[WS] Room %d does not exist", msg.RoomID)
+			return
+		}
+
+		if room.HostID != msg.Sender {
+			log.Printf("[WS] start-session denied: User %d is not host of room %d", msg.Sender, msg.RoomID)
+			return
+		}
+
+		for uid, peerConn := range room.Users {
+			if peerConn != nil {
+				log.Printf("[WS] Closing connection for user %d (P2P start)", uid)
+				_ = peerConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
+				_ = peerConn.Close()
+			}
+		}
+
+		// Cleanup room after disconnecting everyone
+		delete(wsm.Rooms, msg.RoomID)
+		log.Printf("[WS] Room %d cleaned up after start-session", msg.RoomID)
 
 	case "host-changed":
 		log.Printf("[WS] Host changed notification from user %d in room %d", msg.Sender, msg.RoomID)
