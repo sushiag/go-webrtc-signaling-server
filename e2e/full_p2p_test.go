@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	client "github.com/sushiag/go-webrtc-signaling-server/client/lib"
@@ -31,24 +32,35 @@ func TestP2PAfterStartSession(t *testing.T) {
 	err = clientA.CreateRoom()
 	assert.NoError(t, err, "Client A failed to create room")
 
+	time.Sleep(500 * time.Millisecond)
+
 	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
 	err = clientB.JoinRoom(roomID)
 	assert.NoError(t, err, "Client B failed to join room")
 
+	time.Sleep(2 * time.Second) // wait to complete
+
+	// Confirm initial P2P works before server is left
 	err = clientA.SendMessageToPeer(clientB.Websocket.UserID, "hello from A")
 	assert.NoError(t, err, "Client A failed to send message to Client B before StartSession")
 
 	err = clientB.SendMessageToPeer(clientA.Websocket.UserID, "hello from B")
 	assert.NoError(t, err, "Client B failed to send message to Client A before StartSession")
 
+	time.Sleep(1 * time.Second) // allow time for peers to connect
 	err = clientA.StartSession()
 	assert.NoError(t, err, "Client A failed to send start-session")
 
-	err = clientA.SendMessageToPeer(clientB.Websocket.UserID, "are you still there?")
-	assert.NoError(t, err, "Client A should still be able to send message to Client B via P2P")
+	time.Sleep(1 * time.Second) // allow time for server to close connections
 
-	err = clientB.SendMessageToPeer(clientA.Websocket.UserID, "yes!")
-	assert.NoError(t, err, "Client B should still be able to send message to Client A via P2P")
+	assert.Nil(t, clientA.Websocket.Conn, "Client A should be disconnected from server")
+	assert.Nil(t, clientB.Websocket.Conn, "Client B should be disconnected from server")
+
+	err = clientA.SendMessageToPeer(clientB.Websocket.UserID, "P2P-only message from A")
+	assert.NoError(t, err, "Client A failed to send P2P message to Client B after StartSession")
+
+	err = clientB.SendMessageToPeer(clientA.Websocket.UserID, "P2P-only message from B")
+	assert.NoError(t, err, "Client B failed to send P2P message to Client A after StartSession")
 
 	t.Log("Two clients successfully communicated P2P after StartSession and server disconnect.")
 }

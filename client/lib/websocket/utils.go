@@ -7,6 +7,7 @@ func (c *Client) CloseSignaling() {
 		close(c.doneCh)
 		if c.Conn != nil {
 			_ = c.Conn.Close()
+			c.Conn = nil
 		}
 		log.Println("[CLIENT SIGNALING] Client disconnected from signaling server.")
 	}
@@ -17,7 +18,9 @@ func (c *Client) Close() {
 		close(c.doneCh)
 		if c.Conn != nil {
 			_ = c.Conn.Close()
+			c.Conn = nil
 		}
 		log.Println("[CLIENT SIGNALING] Client closed.")
 	}
+
 }
