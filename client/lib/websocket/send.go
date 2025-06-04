@@ -6,7 +6,8 @@ import (
 )
 
 func (c *Client) Send(msg Message) error {
-	if c.isSendLoopStarted.CompareAndSwap(false, true) {
+	if !c.isSendLoopStarted {
+		c.isSendLoopStarted = true
 		go c.sendLoop()
 	}
 
@@ -19,7 +20,8 @@ func (c *Client) Send(msg Message) error {
 }
 
 func (c *Client) maybeStartListen() {
-	if c.isListenStarted.CompareAndSwap(false, true) {
+	if !c.isListenStarted {
+		c.isListenStarted = true
 		go c.listen()
 	}
 }
@@ -28,7 +30,7 @@ func (c *Client) sendLoop() {
 	for {
 		select {
 		case msg := <-c.sendQueue:
-			if c.Conn == nil || c.isClosed.Load() {
+			if c.Conn == nil || c.isClosed {
 				log.Printf("[CLIENT SIGNALING] Cannot send, connection is closed.")
 				continue
 			}

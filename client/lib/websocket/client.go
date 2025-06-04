@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -20,9 +19,9 @@ type Client struct {
 	onMessage         func(Message)
 	doneCh            chan struct{}
 	sendQueue         chan Message
-	isClosed          atomic.Bool
-	isSendLoopStarted atomic.Bool
-	isListenStarted   atomic.Bool
+	isClosed          bool
+	isSendLoopStarted bool
+	isListenStarted   bool
 }
 
 func NewClient(serverURL string) *Client {

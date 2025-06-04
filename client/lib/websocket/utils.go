@@ -2,19 +2,9 @@ package websocket
 
 import "log"
 
-func (c *Client) CloseSignaling() {
-	if c.isClosed.CompareAndSwap(false, true) {
-		close(c.doneCh)
-		if c.Conn != nil {
-			_ = c.Conn.Close()
-			c.Conn = nil
-		}
-		log.Println("[CLIENT SIGNALING] Client disconnected from signaling server.")
-	}
-}
-
 func (c *Client) Close() {
-	if c.isClosed.CompareAndSwap(false, true) {
+	if !c.isClosed {
+		c.isClosed = true
 		close(c.doneCh)
 		if c.Conn != nil {
 			_ = c.Conn.Close()
@@ -22,5 +12,16 @@ func (c *Client) Close() {
 		}
 		log.Println("[CLIENT SIGNALING] Client closed.")
 	}
+}
 
+func (c *Client) CloseSignaling() {
+	if !c.isClosed {
+		c.isClosed = true
+		close(c.doneCh)
+		if c.Conn != nil {
+			_ = c.Conn.Close()
+			c.Conn = nil
+		}
+		log.Println("[CLIENT SIGNALING] Client disconnected from signaling server.")
+	}
 }
