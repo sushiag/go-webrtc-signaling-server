@@ -9,6 +9,8 @@ import (
 )
 
 func (pm *PeerManager) managerWorker() {
+	// TODO: we probably wont need this if we put all the state inside managerQueue
+	// see my other comment inside the NewPeerManager func
 	for fn := range pm.managerQueue {
 		fn()
 	}
@@ -29,6 +31,10 @@ func NewPeerManager(userID uint64) *PeerManager {
 		iceCandidateBuffer: make(map[uint64][]webrtc.ICECandidateInit),
 	}
 
+	// TODO: I dont think we need this the managerQueue...
+	// just put all the state related for one peed inside the managerWorker?
+	// 1 peer == 1 managerWorker
+
 	go pm.managerWorker()
 
 	return pm
@@ -39,6 +45,8 @@ func (pm *PeerManager) HandleSignalingMessage(msg SignalingMessage, sendFunc fun
 		if pm.sendSignalFunc == nil {
 			pm.sendSignalFunc = sendFunc
 		}
+		// TODO: use uint8 (or uint16 if you need more than 256 message types) 
+		// for the message types since it's faster than parsing a string.
 		switch msg.Type {
 		case "peer-list":
 			if pm.UserID == pm.HostID {

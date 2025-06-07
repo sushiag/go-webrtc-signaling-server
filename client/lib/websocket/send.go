@@ -6,6 +6,13 @@ import (
 )
 
 func (c *Client) Send(msg Message) error {
+	// TODO: instead of calling creating a new goroutine forsendLoop here,
+	// just start running sendLoop when the connection is made so we don't
+	// need to start a new goroutine every time we want to send a single message.
+	//
+	// then sendLoop will just be an infinite loop which waits for new messages
+	// through a channel.
+
 	if !c.isSendLoopStarted {
 		c.isSendLoopStarted = true
 		go c.sendLoop()
@@ -19,6 +26,11 @@ func (c *Client) Send(msg Message) error {
 	}
 }
 
+// TODO: the reason why we need this is because the "listening" goroutine is created
+// after every message?
+// 
+// what if we just create one goroutine when the connection is made then it also has
+// a loop in it that always listens for messages... basically a worker
 func (c *Client) maybeStartListen() {
 	if !c.isListenStarted {
 		c.isListenStarted = true

@@ -47,6 +47,8 @@ func (w *Client) Connect() error {
 		log.Printf("[Client] Incoming signaling message: %+v", signalingMsg)
 		// message forwarding from websocket to webrtc
 		w.PeerManager.HandleSignalingMessage(signalingMsg, func(m webrtc.SignalingMessage) error {
+			// TODO: are we not sending our API key anymore and the server just trusts it?
+			// ... or maybe it's fine because the connection is already established? just doublecheck
 			if err := w.Websocket.Send(websocket.Message{
 				Type:      m.Type,
 				Sender:    m.Sender,
