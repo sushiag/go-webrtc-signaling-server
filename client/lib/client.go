@@ -2,7 +2,10 @@ package client
 
 import (
 	"fmt"
+	"io"
 	"log"
+
+	gorilla "github.com/gorilla/websocket"
 
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
@@ -27,12 +30,72 @@ func (w *Client) Connect() error {
 		return fmt.Errorf("failed to authenticate: %v", err)
 	}
 
+	// Read Loop
+	// NOTE: this happens on a goroutine... figure out how to stop
+	// this loop gracefully when the client cant take it anymore...
+	go func() {
+		wsMsgChans := make(map[uint64]chan webrtc.SignalingMessage)
+
+		for {
+			msgType, r, err := w.Websocket.Conn.NextReader()
+			if err != nil {
+				return
+			}
+
+			switch msgType {
+			case gorilla.BinaryMessage:
+				{
+					// TODO: get the signaling message struct using the reader
+					msg := webrtc.SignalingMessage{}
+
+					// TODO: if msgType says someone new joined, create a goroutine
+					// to handle that connection...
+					// my example
+					if msg.Type == websocket.MessageTypePeerJoined {
+						wsMsgChan := make(chan webrtc.SignalingMessage)
+						wsMsgChans[msg.Sender] = wsMsgChan
+
+						// the goroutine starts here...
+						// you can define this function somewhere else,
+						// just putting it here as an example
+						go func() {
+							// loop here to keep checking for new message
+							for {
+								select {
+								case msg := <-wsMsgChan:
+									{
+										// TODO: handle message
+									}
+								}
+								// TODO: add a case to exit the loop when the
+								// connection gets closed
+							}
+						}()
+					}
+
+					// forward the message to the worker
+					wsMsgChans[msg.Sender] <- msg
+				}
+			case gorilla.TextMessage:
+				{
+				}
+			default:
+				{
+				}
+			}
+		}
+	}()
+
 	w.PeerManager = webrtc.NewPeerManager(w.Websocket.UserID)
 	if w.PeerManager == nil {
 		return fmt.Errorf("PeerManager is not initialized")
 	}
 
 	// message forwarding from webrtc to websocket
+	// TODO: instead of setting a callback, we create our own goroutine
+	// which will have a loop that checks if there are messages...
+	// then, this goroutine will send the messages to each handler through
+	// a channel
 	w.Websocket.SetMessageHandler(func(msg websocket.Message) {
 		signalingMsg := webrtc.SignalingMessage{
 			Type:      msg.Type,
