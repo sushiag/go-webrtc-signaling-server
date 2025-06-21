@@ -28,7 +28,8 @@ type PeerManager struct {
 	onPeerCreated      func(*Peer, SignalingMessage)
 	managerQueue       chan func()
 	sendSignalFunc     func(SignalingMessage) error
-	iceCandidateBuffer map[uint64][]webrtc.ICECandidateInit // NEW
+	iceCandidateBuffer map[uint64][]webrtc.ICECandidateInit
+	outgoingMessages   chan SignalingMessage
 }
 
 type SignalingMessage struct {

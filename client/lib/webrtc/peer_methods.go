@@ -2,41 +2,33 @@ package webrtc
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
-
-	"github.com/pion/webrtc/v4"
 )
 
-func (peer *Peer) handleSendLoop() {
+func (p *Peer) handleSendLoop() {
 	for {
 		select {
-		case <-peer.ctx.Done():
+		case msg := <-p.sendChan:
+			log.Printf("[Peer %d] Outgoing message: %s", p.ID, msg)
+		case <-p.ctx.Done():
+			log.Printf("[Peer %d] sendLoop shutdown", p.ID)
 			return
-		case msg := <-peer.sendChan:
-			if peer.Connection.ConnectionState() == webrtc.PeerConnectionStateConnected {
-				_ = peer.DataChannel.SendText(msg)
-			}
 		}
 	}
 }
 
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
-	result := make(chan error, 1)
 	pm.managerQueue <- func() {
 		peer, ok := pm.Peers[peerID]
-		if !ok {
-			result <- fmt.Errorf("peer %d not found", peerID)
+		if !ok || peer.DataChannel == nil {
+			log.Printf("[SendDataToPeer] Peer %d not found or no data channel", peerID)
 			return
 		}
-		if peer.DataChannel == nil || peer.DataChannel.ReadyState() != webrtc.DataChannelStateOpen {
-			result <- fmt.Errorf("data channel not open for peer %d", peerID)
-			return
+		if err := peer.DataChannel.Send(data); err != nil {
+			log.Printf("[SendDataToPeer] Failed sending to peer %d: %v", peerID, err)
 		}
-		err := peer.DataChannel.Send(data)
-		result <- err
 	}
-	return <-result
+	return nil
 }
 
 func (pm *PeerManager) SendPayloadToPeer(peerID uint64, payload Payload) error {

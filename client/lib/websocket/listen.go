@@ -8,6 +8,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func (c *Client) SetOnMessage(f func(Message)) {
+	c.onMessage = f
+}
+
 func (c *Client) listen() {
 	for {
 		select {
@@ -46,16 +50,18 @@ func (c *Client) handleMessage(msg Message) {
 	case MessageTypeRoomCreated:
 		fmt.Printf("Room created: %d\n", msg.RoomID)
 		c.RoomID = msg.RoomID
-		// c.RequestPeerList()
+
 	case MessageTypeRoomJoined:
 		c.RoomID = msg.RoomID
 		c.RequestPeerList()
+
 	case MessageTypeStartSession:
 		if c.onMessage != nil {
 			c.onMessage(msg)
 		}
 		c.CloseSignaling()
 		return
+
 	case MessageTypeSendMessage:
 		if msg.Text != "" {
 			log.Printf("Text message from %d: %s", msg.Sender, msg.Text)
@@ -66,7 +72,18 @@ func (c *Client) handleMessage(msg Message) {
 		if err := c.SendDataToPeer(msg.Target, []byte(msg.Text)); err != nil {
 			log.Printf("[CLIENT SIGNALING] Failed to send data to peer: %v", err)
 		}
+
+	case MessageTypePeerJoined,
+		MessageTypePeerList,
+		MessageTypeOffer,
+		MessageTypeAnswer,
+		MessageTypeICECandidate,
+		MessageTypeHostChanged:
+
+	default:
+		log.Printf("[CLIENT SIGNALING] Unhandled message type: %s", msg.Type)
 	}
+
 	if c.onMessage != nil {
 		c.onMessage(msg)
 	}
