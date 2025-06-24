@@ -6,6 +6,7 @@ import (
 	"log"
 
 	gorilla "github.com/gorilla/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
@@ -87,23 +88,23 @@ func (c *Client) handleSignalingMessage(msg webrtc.SignalingMessage) {
 	log.Printf("[Client] Handling signaling message: %s from %d", msg.Type, msg.Sender)
 
 	switch msg.Type {
-	case websocket.MessageTypePeerJoined, websocket.MessageTypeRoomCreated:
+	case common.MessageTypePeerJoined, common.MessageTypeRoomCreated:
 		log.Printf("[Client] Peer %d joined or created room", msg.Sender)
 		c.cmdChan <- peerCommand{cmd: "add", peerID: msg.Sender}
 
-	case websocket.MessageTypeDisconnect:
+	case common.MessageTypeDisconnect:
 		log.Printf("[Client] Peer %d disconnected", msg.Sender)
 		c.cmdChan <- peerCommand{cmd: "remove", peerID: msg.Sender}
 
-	case websocket.MessageTypePeerList,
-		websocket.MessageTypeHostChanged,
-		websocket.MessageTypeStartSession:
+	case common.MessageTypePeerList,
+		common.MessageTypeHostChanged,
+		common.MessageTypeStartSession:
 		c.PeerManager.HandleIncomingMessage(msg, c.respond)
 
-	case websocket.MessageTypeOffer,
-		websocket.MessageTypeAnswer,
-		websocket.MessageTypeICECandidate,
-		websocket.MessageTypeSendMessage:
+	case common.MessageTypeOffer,
+		common.MessageTypeAnswer,
+		common.MessageTypeICECandidate,
+		common.MessageTypeSendMessage:
 		log.Printf("[Client] Routing signaling to peer %d: %s", msg.Sender, msg.Type)
 		c.cmdChan <- peerCommand{cmd: "send", peerID: msg.Sender, msg: msg}
 

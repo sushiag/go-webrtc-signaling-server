@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/gorilla/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
 func (c *Client) SetOnMessage(f func(Message)) {
@@ -47,22 +48,22 @@ func (c *Client) listen() {
 }
 func (c *Client) handleMessage(msg Message) {
 	switch msg.Type {
-	case MessageTypeRoomCreated:
+	case common.MessageTypeRoomCreated:
 		fmt.Printf("Room created: %d\n", msg.RoomID)
 		c.RoomID = msg.RoomID
 
-	case MessageTypeRoomJoined:
+	case common.MessageTypeRoomJoined:
 		c.RoomID = msg.RoomID
 		c.RequestPeerList()
 
-	case MessageTypeStartSession:
+	case common.MessageTypeStartSession:
 		if c.onMessage != nil {
 			c.onMessage(msg)
 		}
 		c.CloseSignaling()
 		return
 
-	case MessageTypeSendMessage:
+	case common.MessageTypeSendMessage:
 		if msg.Text != "" {
 			log.Printf("Text message from %d: %s", msg.Sender, msg.Text)
 		}
@@ -73,12 +74,12 @@ func (c *Client) handleMessage(msg Message) {
 			log.Printf("[CLIENT SIGNALING] Failed to send data to peer: %v", err)
 		}
 
-	case MessageTypePeerJoined,
-		MessageTypePeerList,
-		MessageTypeOffer,
-		MessageTypeAnswer,
-		MessageTypeICECandidate,
-		MessageTypeHostChanged:
+	case common.MessageTypePeerJoined,
+		common.MessageTypePeerList,
+		common.MessageTypeOffer,
+		common.MessageTypeAnswer,
+		common.MessageTypeICECandidate,
+		common.MessageTypeHostChanged:
 
 	default:
 		log.Printf("[CLIENT SIGNALING] Unhandled message type: %s", msg.Type)

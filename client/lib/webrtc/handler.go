@@ -8,6 +8,7 @@ import (
 	"log"
 
 	"github.com/pion/webrtc/v4"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
 func (pm *PeerManager) managerWorker() {
@@ -62,7 +63,7 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 		}
 
 		switch msg.Type {
-		case MessageTypePeerList:
+		case common.MessageTypePeerList:
 			if pm.UserID == pm.HostID {
 				log.Println("[WEBRTC SIGNALING] Host detected; skipping peer-list processing.")
 				return
@@ -77,7 +78,7 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 				}
 			}
 
-		case MessageTypeOffer:
+		case common.MessageTypeOffer:
 			if pm.UserID == pm.HostID {
 				log.Println("[WEBRTC SIGNALING] Host should not respond to offers. Skipping.")
 				return
@@ -86,7 +87,7 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 				log.Printf("[WEBRTC SIGNALING] Error handling offer from %d: %v", msg.Sender, err)
 			}
 
-		case MessageTypeAnswer:
+		case common.MessageTypeAnswer:
 			peer, exists := pm.Peers[msg.Sender]
 			if !exists {
 				log.Printf("[WEBRTC SIGNALING] Answer from unknown peer %d; ignoring.", msg.Sender)
@@ -100,22 +101,22 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 				log.Printf("[WEBRTC SIGNALING] Error handling answer from %d: %v", msg.Sender, err)
 			}
 
-		case MessageTypeICECandidate:
+		case common.MessageTypeICECandidate:
 			if err := pm.HandleICECandidate(msg, sendFunc); err != nil {
 				log.Printf("[WEBRTC SIGNALING] Error handling ICE candidate from %d: %v", msg.Sender, err)
 			}
 
-		case MessageTypeHostChanged:
+		case common.MessageTypeHostChanged:
 			log.Printf("[WEBRTC SIGNALING] Host changed to: %d", msg.Sender)
 			pm.HostID = msg.Sender
 
-		case MessageTypeStartSession:
+		case common.MessageTypeStartSession:
 			log.Printf("[WEBRTC SIGNALING] Start session triggered.")
 			if err := pm.CheckAllConnectedAndDisconnect(); err != nil {
 				log.Printf("[WEBRTC SIGNALING] Error in full P2P session start: %v", err)
 			}
 
-		case MessageTypeSendMessage:
+		case common.MessageTypeSendMessage:
 			if msg.Text == "" && msg.Payload.Data == nil {
 				log.Printf("[WEBRTC SIGNALING] Empty message received from %d; ignoring.", msg.Sender)
 				return
@@ -185,7 +186,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		}
 		init := c.ToJSON()
 		err := pm.sendSignalFunc(SignalingMessage{
-			Type:      MessageTypeICECandidate,
+			Type:      common.MessageTypeICECandidate,
 			Sender:    pm.UserID,
 			Target:    peerID,
 			Candidate: init.Candidate,
@@ -216,7 +217,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 
 	if pm.sendSignalFunc != nil {
 		if err := pm.sendSignalFunc(SignalingMessage{
-			Type:   MessageTypeOffer,
+			Type:   common.MessageTypeOffer,
 			Sender: pm.UserID,
 			Target: peerID,
 			SDP:    offer.SDP,
@@ -265,7 +266,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		init := c.ToJSON()
 		if peer.remoteDescriptionSet {
 			if err := sendFunc(SignalingMessage{
-				Type:      MessageTypeICECandidate,
+				Type:      common.MessageTypeICECandidate,
 				Sender:    pm.UserID,
 				Target:    msg.Sender,
 				Candidate: init.Candidate,
@@ -323,7 +324,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 
 	if sendFunc != nil {
 		return sendFunc(SignalingMessage{
-			Type:   MessageTypeAnswer,
+			Type:   common.MessageTypeAnswer,
 			Sender: pm.UserID,
 			Target: msg.Sender,
 			SDP:    answer.SDP,
@@ -376,7 +377,7 @@ func (peer *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(Signalin
 	log.Printf("[ICE] Remote description set for peer %d. Sending %d buffered candidates.", peer.ID, len(peer.bufferedICECandidates))
 	for _, c := range peer.bufferedICECandidates {
 		if err := sendFunc(SignalingMessage{
-			Type:      MessageTypeICECandidate,
+			Type:      common.MessageTypeICECandidate,
 			Sender:    senderID,
 			Target:    peer.ID,
 			Candidate: c.Candidate,

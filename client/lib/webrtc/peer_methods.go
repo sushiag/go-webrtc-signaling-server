@@ -3,6 +3,8 @@ package webrtc
 import (
 	"encoding/json"
 	"log"
+
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
 func (p *Peer) handleSendLoop() {
@@ -60,7 +62,7 @@ func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage)
 				pm.HostID = newHostID
 				log.Printf("[HOST] Host reassigned to %d", pm.HostID)
 				hostChangeMsg := SignalingMessage{
-					Type:   MessageTypeHostChanged,
+					Type:   common.MessageTypeHostChanged,
 					Sender: pm.UserID,
 					Target: 0,
 					Users:  pm.GetPeerIDs(),

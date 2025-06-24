@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
 type Client struct {
@@ -66,7 +67,7 @@ func (c *Client) IsWebSocketClosed() bool {
 }
 func (c *Client) StartSession() error {
 	msg := Message{
-		Type: MessageTypeStartSession,
+		Type: common.MessageTypeStartSession,
 	}
 	return c.Send(msg)
 }

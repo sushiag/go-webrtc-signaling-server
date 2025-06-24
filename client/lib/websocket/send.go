@@ -3,6 +3,8 @@ package websocket
 import (
 	"fmt"
 	"log"
+
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
 func (c *Client) Send(msg Message) error {
@@ -52,7 +54,7 @@ func (c *Client) sendLoop() {
 
 func (c *Client) SendDataToPeer(targetID uint64, data []byte) error {
 	return c.Send(Message{
-		Type:    MessageTypeSendMessage,
+		Type:    common.MessageTypeSendMessage,
 		Target:  targetID,
 		RoomID:  c.RoomID,
 		Sender:  c.UserID,
@@ -60,7 +62,7 @@ func (c *Client) SendDataToPeer(targetID uint64, data []byte) error {
 	})
 }
 
-func (c *Client) SendSignalingMessage(targetID uint64, msgType MessageType, sdpOrCandidate string) error {
+func (c *Client) SendSignalingMessage(targetID uint64, msgType common.MessageType, sdpOrCandidate string) error {
 	msg := Message{
 		Type:   msgType,
 		Target: targetID,
@@ -69,11 +71,11 @@ func (c *Client) SendSignalingMessage(targetID uint64, msgType MessageType, sdpO
 	}
 
 	switch msgType {
-	case MessageTypeOffer, MessageTypeAnswer:
+	case common.MessageTypeOffer, common.MessageTypeAnswer:
 		msg.SDP = sdpOrCandidate
-	case MessageTypeICECandidate:
+	case common.MessageTypeICECandidate:
 		msg.Candidate = sdpOrCandidate
-	case MessageTypeSendMessage:
+	case common.MessageTypeSendMessage:
 		msg.Content = sdpOrCandidate
 	default:
 		return fmt.Errorf("unsupported message type: %s", msgType.String())
