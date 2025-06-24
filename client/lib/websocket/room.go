@@ -25,7 +25,7 @@ func (c *Client) JoinRoom(roomID string) error {
 }
 
 func (c *Client) RequestPeerList() {
-	if err := c.Send(Message{Type: MessageTypePeerListReq}); err != nil {
+	if err := c.Send(Message{Type: MessageTypePeerListRequest}); err != nil {
 		log.Printf("Peer list request failed: %v", err)
 	}
 }

@@ -42,7 +42,7 @@ func (c *Client) sendLoop() {
 			}
 			err := c.Conn.WriteJSON(msg)
 			if err != nil {
-				log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type, err)
+				log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type.String(), err)
 			}
 		case <-c.doneCh:
 			return
@@ -60,7 +60,7 @@ func (c *Client) SendDataToPeer(targetID uint64, data []byte) error {
 	})
 }
 
-func (c *Client) SendSignalingMessage(targetID uint64, msgType, sdpOrCandidate string) error {
+func (c *Client) SendSignalingMessage(targetID uint64, msgType MessageType, sdpOrCandidate string) error {
 	msg := Message{
 		Type:   msgType,
 		Target: targetID,
@@ -76,7 +76,7 @@ func (c *Client) SendSignalingMessage(targetID uint64, msgType, sdpOrCandidate s
 	case MessageTypeSendMessage:
 		msg.Content = sdpOrCandidate
 	default:
-		return fmt.Errorf("unsupported message type: %s", msgType)
+		return fmt.Errorf("unsupported message type: %s", msgType.String())
 	}
 
 	return c.Send(msg)

@@ -2,4 +2,6 @@ valid-api-key-1
 valid-api-key-2
 valid-api-key-3
 valid-api-key-4
-// don't forget to add api-keys if needed
+valid-api-key-5
+valid-api-key-6
+valid-api-key-4

@@ -66,7 +66,7 @@ func (c *Client) IsWebSocketClosed() bool {
 }
 func (c *Client) StartSession() error {
 	msg := Message{
-		Type: "start-session",
+		Type: MessageTypeStartSession,
 	}
 	return c.Send(msg)
 }

@@ -60,7 +60,7 @@ func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage)
 				pm.HostID = newHostID
 				log.Printf("[HOST] Host reassigned to %d", pm.HostID)
 				hostChangeMsg := SignalingMessage{
-					Type:   "host-changed",
+					Type:   MessageTypeHostChanged,
 					Sender: pm.UserID,
 					Target: 0,
 					Users:  pm.GetPeerIDs(),

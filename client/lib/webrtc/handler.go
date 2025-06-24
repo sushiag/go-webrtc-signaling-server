@@ -56,13 +56,13 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 
 		log.Printf("[DEBUG] Dispatching signaling message: type=%s from=%d to=%d", msg.Type, msg.Sender, msg.Target)
 
-		if msg.Type == "" {
-			log.Println("[WARN] Empty message type; ignoring.")
+		if msg.Type < 0 {
+			log.Println("[WARN] Invalid message type; ignoring.")
 			return
 		}
 
 		switch msg.Type {
-		case "peer-list":
+		case MessageTypePeerList:
 			if pm.UserID == pm.HostID {
 				log.Println("[WEBRTC SIGNALING] Host detected; skipping peer-list processing.")
 				return
@@ -77,7 +77,7 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 				}
 			}
 
-		case "offer":
+		case MessageTypeOffer:
 			if pm.UserID == pm.HostID {
 				log.Println("[WEBRTC SIGNALING] Host should not respond to offers. Skipping.")
 				return
@@ -86,7 +86,7 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 				log.Printf("[WEBRTC SIGNALING] Error handling offer from %d: %v", msg.Sender, err)
 			}
 
-		case "answer":
+		case MessageTypeAnswer:
 			peer, exists := pm.Peers[msg.Sender]
 			if !exists {
 				log.Printf("[WEBRTC SIGNALING] Answer from unknown peer %d; ignoring.", msg.Sender)
@@ -100,22 +100,22 @@ func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func
 				log.Printf("[WEBRTC SIGNALING] Error handling answer from %d: %v", msg.Sender, err)
 			}
 
-		case "ice-candidate":
+		case MessageTypeICECandidate:
 			if err := pm.HandleICECandidate(msg, sendFunc); err != nil {
 				log.Printf("[WEBRTC SIGNALING] Error handling ICE candidate from %d: %v", msg.Sender, err)
 			}
 
-		case "host-changed":
+		case MessageTypeHostChanged:
 			log.Printf("[WEBRTC SIGNALING] Host changed to: %d", msg.Sender)
 			pm.HostID = msg.Sender
 
-		case "start-session":
+		case MessageTypeStartSession:
 			log.Printf("[WEBRTC SIGNALING] Start session triggered.")
 			if err := pm.CheckAllConnectedAndDisconnect(); err != nil {
 				log.Printf("[WEBRTC SIGNALING] Error in full P2P session start: %v", err)
 			}
 
-		case "send-message":
+		case MessageTypeSendMessage:
 			if msg.Text == "" && msg.Payload.Data == nil {
 				log.Printf("[WEBRTC SIGNALING] Empty message received from %d; ignoring.", msg.Sender)
 				return
@@ -185,7 +185,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		}
 		init := c.ToJSON()
 		err := pm.sendSignalFunc(SignalingMessage{
-			Type:      "ice-candidate",
+			Type:      MessageTypeICECandidate,
 			Sender:    pm.UserID,
 			Target:    peerID,
 			Candidate: init.Candidate,
@@ -216,7 +216,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 
 	if pm.sendSignalFunc != nil {
 		if err := pm.sendSignalFunc(SignalingMessage{
-			Type:   "offer",
+			Type:   MessageTypeOffer,
 			Sender: pm.UserID,
 			Target: peerID,
 			SDP:    offer.SDP,
@@ -265,7 +265,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		init := c.ToJSON()
 		if peer.remoteDescriptionSet {
 			if err := sendFunc(SignalingMessage{
-				Type:      "ice-candidate",
+				Type:      MessageTypeICECandidate,
 				Sender:    pm.UserID,
 				Target:    msg.Sender,
 				Candidate: init.Candidate,
@@ -323,7 +323,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 
 	if sendFunc != nil {
 		return sendFunc(SignalingMessage{
-			Type:   "answer",
+			Type:   MessageTypeAnswer,
 			Sender: pm.UserID,
 			Target: msg.Sender,
 			SDP:    answer.SDP,
@@ -376,7 +376,7 @@ func (peer *Peer) OnRemoteDescriptionSet(senderID uint64, sendFunc func(Signalin
 	log.Printf("[ICE] Remote description set for peer %d. Sending %d buffered candidates.", peer.ID, len(peer.bufferedICECandidates))
 	for _, c := range peer.bufferedICECandidates {
 		if err := sendFunc(SignalingMessage{
-			Type:      "ice-candidate",
+			Type:      MessageTypeICECandidate,
 			Sender:    senderID,
 			Target:    peer.ID,
 			Candidate: c.Candidate,
