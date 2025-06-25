@@ -57,7 +57,7 @@ func (wsm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 			Type:   TypePeerList,
 			RoomID: roomID,
 			Users:  peers,
-			Sender: userID, // ✅ Add this
+			Sender: userID,
 		})
 	}
 
