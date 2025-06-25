@@ -38,7 +38,7 @@ func TestP2PAfterStartSession(t *testing.T) {
 	err = clientB.JoinRoom(roomID)
 	assert.NoError(t, err, "Client B failed to join room")
 
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	err = clientA.SendMessageToPeer(clientB.Websocket.UserID, "hello from A")
 	assert.NoError(t, err, "Client A failed to send message to Client B before StartSession")

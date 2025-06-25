@@ -57,6 +57,7 @@ func (wsm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 			Type:   TypePeerList,
 			RoomID: roomID,
 			Users:  peers,
+			Sender: userID, // ✅ Add this
 		})
 	}
 
@@ -132,10 +133,11 @@ func (wsm *WebSocketManager) handlePeerListRequest(msg Message) {
 			Type:   TypePeerList,
 			RoomID: roomID,
 			Users:  peerList,
+			Sender: userID, // ✅ Fix added here
 		})
 	}
-	log.Printf("[WS] Sent User %d: %d", userID, peerList)
 
+	log.Printf("[WS] Sent peer list to user %d: %v", userID, peerList)
 }
 
 func (wsm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool {

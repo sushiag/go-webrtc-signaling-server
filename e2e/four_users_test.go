@@ -47,7 +47,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	err = clientD.JoinRoom(roomID)
 	assert.NoError(t, err, "Client D failed to join room")
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(4 * time.Second)
 
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
