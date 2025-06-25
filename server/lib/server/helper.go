@@ -133,7 +133,7 @@ func (wsm *WebSocketManager) handlePeerListRequest(msg Message) {
 			Type:   TypePeerList,
 			RoomID: roomID,
 			Users:  peerList,
-			Sender: userID, // ✅ Fix added here
+			Sender: userID,
 		})
 	}
 
