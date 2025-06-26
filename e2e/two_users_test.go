@@ -31,11 +31,11 @@ func TestEndToEndSignaling(t *testing.T) {
 	err = clientA.CreateRoom()
 	assert.NoError(t, err, "Client A: failed to create room")
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	err = clientB.JoinRoom(roomID)
 	assert.NoError(t, err, "Client B failed to join room")

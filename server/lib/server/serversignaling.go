@@ -1,36 +1,10 @@
 package server
 
 import (
-	"encoding/json"
 	"log"
 
 	"github.com/gorilla/websocket"
 )
-
-func (wsm *WebSocketManager) readMessages(userID uint64, conn *websocket.Conn) {
-	defer func() {
-		wsm.disconnectChan <- userID
-		conn.Close()
-		log.Printf("[WS] User %d disconnected", userID)
-	}()
-
-	for {
-		_, data, err := conn.ReadMessage()
-		if err != nil {
-			log.Printf("WebSocket read error for user %d: %v", userID, err)
-			return
-		}
-
-		var msg Message
-		if err := json.Unmarshal(data, &msg); err != nil {
-			log.Printf("[WS] Invalid message from %d: %v", userID, err)
-			continue
-		}
-
-		msg.Sender = userID
-		wsm.messageChan <- msg
-	}
-}
 
 func (wsm *WebSocketManager) handleMessage(msg Message) {
 	switch msg.Type {
@@ -102,8 +76,8 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 		for uid, peerConn := range room.Users {
 			if peerConn != nil {
 				log.Printf("[WS] Closing connection for user %d (P2P start)", uid)
-				_ = peerConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
-				_ = peerConn.Close()
+				_ = peerConn.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
+				_ = peerConn.Conn.Close()
 			}
 		}
 
@@ -111,7 +85,7 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 		delete(wsm.Rooms, msg.RoomID)
 		log.Printf("[WS] Room %d cleaned up after start-session", msg.RoomID)
 
-	case "host-changed":
+	case TypeHostChanged:
 		log.Printf("[WS] Host changed notification from user %d in room %d", msg.Sender, msg.RoomID)
 		room, exists := wsm.Rooms[msg.RoomID]
 		if exists {
@@ -120,9 +94,10 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 					_ = wsm.SafeWriteJSON(conn, msg)
 				}
 			}
+
 		}
 
-	case "send-message":
+	case TypeSendMessage:
 		log.Printf("[WS] Sending message from user %d to %d: %s", msg.Sender, msg.Target, msg.Content)
 		wsm.forwardOrBuffer(msg.Sender, msg)
 

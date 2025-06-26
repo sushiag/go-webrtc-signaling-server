@@ -8,49 +8,145 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type MessageType int
+
 // message type for the readmessages
 const (
-	TypeCreateRoom      = "create-room"
-	TypeJoin            = "join-room"
-	TypeOffer           = "offer"
-	TypeAnswer          = "answer"
-	TypeICE             = "ice-candidate"
-	TypeDisconnect      = "disconnect"
-	TypeText            = "text"
-	TypePeerJoined      = "room-joined"
-	TypeRoomCreated     = "room-created"
-	TypePeerList        = "peer-list"
-	TypePeerReady       = "peer-ready"
-	TypeStart           = "start"
-	TypeStartP2P        = "start-session"
-	TypePeerListRequest = "peer-list-request"
+	TypeCreateRoom MessageType = iota
+	TypeJoin
+	TypeOffer
+	TypeAnswer
+	TypeICE
+	TypeDisconnect
+	TypeText
+	TypePeerJoined
+	TypeRoomCreated
+	TypePeerList
+	TypePeerReady
+	TypeStart
+	TypeStartP2P
+	TypePeerListRequest
+	TypeHostChanged
+	TypeSendMessage
+	TypePeerLeft
 )
 
 type Message struct {
-	Type      string   `json:"type"`
-	APIKey    string   `json:"apikey,omitempty"`
-	Content   string   `json:"content,omitempty"`
-	RoomID    uint64   `json:"roomid,omitempty"`
-	Sender    uint64   `json:"from,omitempty"`
-	Target    uint64   `json:"to,omitempty"`
-	SDP       string   `json:"sdp,omitempty"`
-	Candidate string   `json:"candidate,omitempty"`
-	UserID    uint64   `json:"userid,omitempty"`
-	Users     []uint64 `json:"users,omitempty"`
+	Type      MessageType `json:"type"`
+	APIKey    string      `json:"apikey,omitempty"`
+	Content   string      `json:"content,omitempty"`
+	RoomID    uint64      `json:"roomid,omitempty"`
+	Sender    uint64      `json:"from,omitempty"`
+	Target    uint64      `json:"to,omitempty"`
+	SDP       string      `json:"sdp,omitempty"`
+	Candidate string      `json:"candidate,omitempty"`
+	UserID    uint64      `json:"userid,omitempty"`
+	Users     []uint64    `json:"users,omitempty"`
 }
 
 // struct for a group of connected users
 type Room struct {
 	ID        uint64
-	Users     map[uint64]*websocket.Conn
+	Users     map[uint64]*Connection
 	ReadyMap  map[uint64]bool
 	JoinOrder []uint64
 	HostID    uint64
 }
 
+func (t MessageType) String() string {
+	switch t {
+	case TypeCreateRoom:
+		return "create-room"
+	case TypeJoin:
+		return "join-room"
+	case TypeOffer:
+		return "offer"
+	case TypeAnswer:
+		return "answer"
+	case TypeICE:
+		return "ice-candidate"
+	case TypeDisconnect:
+		return "disconnect"
+	case TypeText:
+		return "text"
+	case TypePeerJoined:
+		return "room-joined"
+	case TypeRoomCreated:
+		return "room-created"
+	case TypePeerList:
+		return "peer-list"
+	case TypePeerReady:
+		return "peer-ready"
+	case TypeStart:
+		return "start"
+	case TypeStartP2P:
+		return "start-session"
+	case TypePeerListRequest:
+		return "peer-list-request"
+	case TypeHostChanged:
+		return "host-changed"
+	case TypeSendMessage:
+		return "send-message"
+	case TypePeerLeft:
+		return "peer-left"
+	default:
+		return "unknown"
+	}
+}
+
+func (t MessageType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.String())
+}
+
+func (t *MessageType) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	switch s {
+	case "create-room":
+		*t = TypeCreateRoom
+	case "join-room":
+		*t = TypeJoin
+	case "offer":
+		*t = TypeOffer
+	case "answer":
+		*t = TypeAnswer
+	case "ice-candidate":
+		*t = TypeICE
+	case "disconnect":
+		*t = TypeDisconnect
+	case "text":
+		*t = TypeText
+	case "room-joined":
+		*t = TypePeerJoined
+	case "room-created":
+		*t = TypeRoomCreated
+	case "peer-list":
+		*t = TypePeerList
+	case "peer-ready":
+		*t = TypePeerReady
+	case "start":
+		*t = TypeStart
+	case "start-session":
+		*t = TypeStartP2P
+	case "peer-list-request":
+		*t = TypePeerListRequest
+	case "host-changed":
+		*t = TypeHostChanged
+	case "send-message":
+		*t = TypeSendMessage
+	case "peer-left":
+		*t = TypePeerLeft
+	default:
+		*t = -1
+	}
+	return nil
+}
+
 // this handles connection and room management
 type WebSocketManager struct {
-	Connections     map[uint64]*websocket.Conn
+	Connections     map[uint64]*Connection
 	Rooms           map[uint64]*Room
 	validApiKeys    map[string]bool
 	apiKeyToUserID  map[string]uint64
@@ -61,10 +157,19 @@ type WebSocketManager struct {
 	disconnectChan  chan uint64
 }
 
+// this handles connection that starts its own goroutine
+type Connection struct {
+	UserID       uint64
+	Conn         *websocket.Conn
+	Incoming     chan Message
+	Outgoing     chan Message
+	Disconnected chan<- uint64
+}
+
 // this initializes a new manager
 func NewWebSocketManager() *WebSocketManager {
 	wsm := &WebSocketManager{
-		Connections:     make(map[uint64]*websocket.Conn),
+		Connections:     make(map[uint64]*Connection),
 		Rooms:           make(map[uint64]*Room),
 		apiKeyToUserID:  make(map[string]uint64),
 		candidateBuffer: make(map[uint64][]Message),
@@ -77,6 +182,54 @@ func NewWebSocketManager() *WebSocketManager {
 	return wsm
 }
 
+func NewConnection(userID uint64, conn *websocket.Conn, msgOut chan<- Message, disconnectOut chan<- uint64) *Connection {
+	c := &Connection{
+		UserID:       userID,
+		Conn:         conn,
+		Incoming:     make(chan Message),
+		Outgoing:     make(chan Message),
+		Disconnected: disconnectOut,
+	}
+
+	go c.readLoop(msgOut)
+	go c.writeLoop()
+	return c
+}
+
+func (c *Connection) readLoop(msgOut chan<- Message) {
+	defer func() {
+		c.Disconnected <- c.UserID
+		c.Conn.Close()
+		log.Printf("[WS] User %d disconnected (readLoop)", c.UserID)
+	}()
+
+	for {
+		_, data, err := c.Conn.ReadMessage()
+		if err != nil {
+			log.Printf("WebSocket read error for user %d: %v", c.UserID, err)
+			return
+		}
+
+		var msg Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			log.Printf("[WS] Invalid message from %d: %v", c.UserID, err)
+			continue
+		}
+
+		msg.Sender = c.UserID
+		msgOut <- msg
+	}
+}
+
+func (c *Connection) writeLoop() {
+	for msg := range c.Outgoing {
+		if err := c.Conn.WriteJSON(msg); err != nil {
+			log.Printf("[WS] Write error to %d: %v", c.UserID, err)
+			c.Disconnected <- c.UserID
+			return
+		}
+	}
+}
 func (wsm *WebSocketManager) run() {
 	for {
 		select {
@@ -88,8 +241,9 @@ func (wsm *WebSocketManager) run() {
 	}
 }
 
-func (wsm *WebSocketManager) SafeWriteJSON(conn *websocket.Conn, v interface{}) error {
-	return conn.WriteJSON(v)
+func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v Message) error {
+	c.Outgoing <- v
+	return nil
 }
 
 func (wsm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
@@ -143,7 +297,10 @@ func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	apiKey := r.Header.Get("X-Api-Key")
 	userID := wsm.apiKeyToUserID[apiKey]
 
-	conn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[WS] Upgrade failed: %v", err)
 		return
@@ -156,13 +313,15 @@ func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 		conn.Close()
 		return
 	}
-	wsm.Connections[userID] = conn
+	connection := NewConnection(userID, conn, wsm.messageChan, wsm.disconnectChan)
+	wsm.Connections[userID] = connection
 
 	// Flush buffered candidates if any
 	wsm.flushBufferedMessages(userID)
 
 	log.Printf("[WS] User %d connected", userID)
 
-	go wsm.readMessages(userID, conn)
+	c := NewConnection(userID, conn, wsm.messageChan, wsm.disconnectChan)
+	wsm.Connections[userID] = c
 	go wsm.sendPings(userID, conn)
 }

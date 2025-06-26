@@ -19,8 +19,8 @@ func (wsm *WebSocketManager) handleStart(msg Message) {
 	for uid, peerConn := range room.Users {
 		if peerConn != nil {
 			log.Printf("[WS] Closing connection to user %d for P2P switch", uid)
-			_ = peerConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
-			_ = peerConn.Close()
+			_ = peerConn.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
+			_ = peerConn.Conn.Close()
 		}
 	}
 
@@ -31,7 +31,7 @@ func (wsm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 	if !exists {
 		room = &Room{
 			ID:       roomID,
-			Users:    make(map[uint64]*websocket.Conn),
+			Users:    make(map[uint64]*Connection),
 			ReadyMap: make(map[uint64]bool),
 			HostID:   userID, // added to solve the problem with  host not being track
 		}
@@ -166,7 +166,7 @@ func (wsm *WebSocketManager) CreateRoom(hostID uint64) uint64 {
 
 	room := &Room{
 		ID:        roomID,
-		Users:     map[uint64]*websocket.Conn{hostID: conn},
+		Users:     map[uint64]*Connection{hostID: conn},
 		ReadyMap:  map[uint64]bool{hostID: false},
 		JoinOrder: []uint64{hostID},
 		HostID:    hostID,
@@ -179,7 +179,7 @@ func (wsm *WebSocketManager) CreateRoom(hostID uint64) uint64 {
 func (wsm *WebSocketManager) disconnectUser(userID uint64) {
 	// Close and remove the user's connection
 	if conn, exists := wsm.Connections[userID]; exists {
-		conn.Close()
+		conn.Conn.Close()
 		delete(wsm.Connections, userID)
 	}
 
@@ -194,8 +194,8 @@ func (wsm *WebSocketManager) disconnectUser(userID uint64) {
 			// Notify remaining peers that this user has left
 			for _, peerConn := range room.Users {
 				if peerConn != nil {
-					_ = peerConn.WriteJSON(Message{
-						Type:   "peer-left",
+					_ = peerConn.Conn.WriteJSON(Message{
+						Type:   TypePeerLeft,
 						RoomID: roomID,
 						Sender: userID,
 					})

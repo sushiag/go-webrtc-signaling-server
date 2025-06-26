@@ -36,6 +36,8 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	err := clientA.CreateRoom()
 	assert.NoError(t, err, "Client A failed to create room")
 
+	time.Sleep(500 * time.Millisecond)
+
 	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
 
 	err = clientB.JoinRoom(roomID)
@@ -47,7 +49,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	err = clientD.JoinRoom(roomID)
 	assert.NoError(t, err, "Client D failed to join room")
 
-	time.Sleep(4 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
