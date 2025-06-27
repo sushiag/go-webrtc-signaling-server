@@ -47,6 +47,5 @@ func (c *Client) Init() error {
 
 	log.Println("[CLIENT SIGNALING] Connected to:", c.ServerURL)
 	c.Conn = conn
-	c.maybeStartListen()
 	return nil
 }

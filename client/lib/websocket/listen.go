@@ -13,6 +13,11 @@ func (c *Client) SetOnMessage(f func(Message)) {
 	c.onMessage = f
 }
 
+func (c *Client) Start() {
+	go c.listen()
+	go c.sendLoop()
+}
+
 func (c *Client) listen() {
 	for {
 		select {
@@ -43,7 +48,6 @@ func (c *Client) listen() {
 
 			c.handleMessage(msg)
 		}
-
 	}
 }
 func (c *Client) handleMessage(msg Message) {

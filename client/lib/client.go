@@ -2,10 +2,8 @@ package client
 
 import (
 	"fmt"
-	"io"
 	"log"
 
-	gorilla "github.com/gorilla/websocket"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
@@ -29,7 +27,6 @@ func NewClient(wsEndpoint string) *Client {
 		cmdChan:   make(chan peerCommand),
 	}
 }
-
 func (c *Client) Connect() error {
 	if err := c.Websocket.PreAuthenticate(); err != nil {
 		return fmt.Errorf("authentication failed: %v", err)
@@ -43,6 +40,7 @@ func (c *Client) Connect() error {
 	if err := c.Websocket.Init(); err != nil {
 		return err
 	}
+	c.Websocket.Start()
 
 	c.Websocket.SetOnMessage(func(msg websocket.Message) {
 		c.handleSignalingMessage(webrtc.SignalingMessage{
@@ -57,31 +55,9 @@ func (c *Client) Connect() error {
 	})
 
 	go c.dispatchPeerCommands()
-	go c.readLoop()
 	go c.forwardOutgoingMessages()
 
 	return nil
-}
-
-func (c *Client) readLoop() {
-	for {
-		msgType, r, err := c.Websocket.Conn.NextReader()
-		if err != nil {
-			if gorilla.IsCloseError(err, gorilla.CloseGoingAway, gorilla.CloseAbnormalClosure) {
-				log.Printf("[Client] WebSocket closed: %v", err)
-			}
-			return
-		}
-
-		if msgType == gorilla.TextMessage || msgType == gorilla.BinaryMessage {
-			var msg webrtc.SignalingMessage
-			if err := msg.Decode(r); err != nil && err != io.EOF {
-				log.Printf("[Client] Decode failed: %v", err)
-				continue
-			}
-			c.handleSignalingMessage(msg)
-		}
-	}
 }
 
 func (c *Client) handleSignalingMessage(msg webrtc.SignalingMessage) {

@@ -11,18 +11,16 @@ import (
 )
 
 type Client struct {
-	Conn              *websocket.Conn
-	ServerURL         string
-	ApiKey            string
-	SessionKey        string
-	UserID            uint64
-	RoomID            uint64
-	onMessage         func(Message)
-	doneCh            chan struct{}
-	sendQueue         chan Message
-	isClosed          bool
-	isSendLoopStarted bool
-	isListenStarted   bool
+	Conn       *websocket.Conn
+	ServerURL  string
+	ApiKey     string
+	SessionKey string
+	UserID     uint64
+	RoomID     uint64
+	onMessage  func(Message)
+	doneCh     chan struct{}
+	sendQueue  chan Message
+	isClosed   bool
 }
 
 func NewClient(serverURL string) *Client {
@@ -41,7 +39,6 @@ func (c *Client) Connect() error {
 	}
 	c.Conn = conn
 	log.Println("[CLIENT SIGNALING] Connected to server:", c.ServerURL)
-	c.maybeStartListen()
 	return nil
 }
 

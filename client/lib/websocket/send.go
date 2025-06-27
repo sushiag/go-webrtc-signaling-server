@@ -8,23 +8,11 @@ import (
 )
 
 func (c *Client) Send(msg Message) error {
-	if !c.isSendLoopStarted {
-		c.isSendLoopStarted = true
-		go c.sendLoop()
-	}
-
 	select {
 	case c.sendQueue <- msg:
 		return nil
 	case <-c.doneCh:
 		return fmt.Errorf("client is closed")
-	}
-}
-
-func (c *Client) maybeStartListen() {
-	if !c.isListenStarted {
-		c.isListenStarted = true
-		go c.listen()
 	}
 }
 
