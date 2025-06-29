@@ -3,7 +3,6 @@ package e2e_test
 import (
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	client "github.com/sushiag/go-webrtc-signaling-server/client/lib"
@@ -31,15 +30,10 @@ func TestEndToEndSignaling(t *testing.T) {
 	err = clientA.CreateRoom()
 	assert.NoError(t, err, "Client A: failed to create room")
 
-	time.Sleep(500 * time.Millisecond)
-
 	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
-
-	time.Sleep(500 * time.Millisecond)
 
 	err = clientB.JoinRoom(roomID)
 	assert.NoError(t, err, "Client B failed to join room")
-	time.Sleep(2 * time.Second)
 
 	clients := []*client.Client{clientA, clientB}
 	for round := 1; round <= 1; round++ {
@@ -51,7 +45,6 @@ func TestEndToEndSignaling(t *testing.T) {
 				assert.NoErrorf(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
 			}
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	t.Logf("All clients successfully exchanged messages for 1 round.")
