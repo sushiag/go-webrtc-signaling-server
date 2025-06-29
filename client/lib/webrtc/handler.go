@@ -46,6 +46,7 @@ func (pm *PeerManager) OutgoingMessages() <-chan SignalingMessage {
 }
 
 func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, sendFunc func(SignalingMessage) error) {
+	// TODO(chee): fix this
 	pm.managerQueue <- func() {
 		if pm.sendSignalFunc == nil {
 			pm.sendSignalFunc = sendFunc
@@ -162,6 +163,7 @@ func (pm *PeerManager) CreateAndSendOffer(peerID uint64, sendFunc func(Signaling
 		}
 	})
 
+	// TODO(chee): fix this
 	pm.managerQueue <- func() {
 		pm.Peers[peerID] = peer
 
@@ -288,6 +290,7 @@ func (pm *PeerManager) HandleOffer(msg SignalingMessage, sendFunc func(Signaling
 		}
 	})
 
+	// TODO(chee): fix this
 	pm.managerQueue <- func() {
 		pm.Peers[msg.Sender] = peer
 
@@ -349,6 +352,7 @@ func (pm *PeerManager) HandleAnswer(msg SignalingMessage, sendFunc func(Signalin
 }
 
 func (pm *PeerManager) HandleICECandidate(msg SignalingMessage, sendFunc func(SignalingMessage) error) error {
+	// TODO(chee): fix this
 	pm.managerQueue <- func() {
 		peer, ok := pm.Peers[msg.Sender]
 		candidate := webrtc.ICECandidateInit{Candidate: msg.Candidate}

@@ -20,6 +20,7 @@ func (p *Peer) handleSendLoop() {
 }
 
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
+	// TODO(chee): fix this
 	pm.managerQueue <- func() {
 		peer, ok := pm.Peers[peerID]
 		if !ok || peer.DataChannel == nil {
@@ -42,6 +43,7 @@ func (pm *PeerManager) SendPayloadToPeer(peerID uint64, payload Payload) error {
 }
 
 func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage) error) {
+	// TODO(chee): fix this
 	pm.managerQueue <- func() {
 		peer, ok := pm.Peers[peerID]
 		if !ok {
