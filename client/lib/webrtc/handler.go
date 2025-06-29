@@ -11,14 +11,6 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
-func (pm *PeerManager) managerWorker() {
-	fmt.Println("[DEBUG] managerWorker started")
-	for fn := range pm.managerQueue {
-		fmt.Println("[DEBUG] Executing managerQueue function")
-		fn()
-	}
-}
-
 func NewPeerManager(userID uint64) *PeerManager {
 	fmt.Println("[DEBUG] NewPeerManager called for user:", userID)
 	config := webrtc.Configuration{
@@ -36,7 +28,11 @@ func NewPeerManager(userID uint64) *PeerManager {
 		outgoingMessages:   make(chan SignalingMessage, 16),
 	}
 
-	go pm.managerWorker()
+	go func() {
+		for fn := range pm.managerQueue {
+			fn()
+		}
+	}()
 
 	return pm
 }

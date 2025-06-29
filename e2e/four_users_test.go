@@ -43,25 +43,34 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	err = clientB.JoinRoom(roomID)
 	assert.NoError(t, err, "Client B failed to join room")
 
+	time.Sleep(500 * time.Millisecond)
+
 	err = clientC.JoinRoom(roomID)
 	assert.NoError(t, err, "Client C failed to join room")
+
+	time.Sleep(500 * time.Millisecond)
 
 	err = clientD.JoinRoom(roomID)
 	assert.NoError(t, err, "Client D failed to join room")
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
 		for _, sender := range clients {
+			senderID := strconv.FormatUint(sender.Websocket.UserID, 10)
+
 			for peerID := range sender.PeerManager.Peers {
-				message := "Round " + strconv.Itoa(round) + " from client " + strconv.FormatUint(sender.Websocket.UserID, 10)
+				receiverID := strconv.FormatUint(peerID, 10)
+				message := "Round " + strconv.Itoa(round) +
+					" | from client " + senderID +
+					" | to client " + receiverID
+
 				err := sender.SendMessageToPeer(peerID, message)
-				assert.NoErrorf(t, err, "Failed to send message from client %d to peer %d", sender.Websocket.UserID, peerID)
+				assert.NoErrorf(t, err, "Failed to send message from client %s to peer %s", senderID, receiverID)
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-
 	t.Logf("All clients successfully exchanged messages")
 }

@@ -17,5 +17,5 @@ type Message struct {
 	SDP       string             `json:"sdp,omitempty"`
 	Users     []uint64           `json:"users,omitempty"`
 	Text      string             `json:"text,omitempty"`
-	Payload   Payload            `json:"Payload,omitempty"`
+	Payload   Payload            `json:"payload"`
 }

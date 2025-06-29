@@ -5,14 +5,14 @@ import (
 )
 
 func (pm *PeerManager) GracefulShutdown() {
-	pm.managerQueue <- func() {
-		log.Println("[SHUTDOWN] Initiating graceful shutdown...")
-		for id := range pm.Peers {
-			log.Printf("[SHUTDOWN] Closing peer %d", id)
-			delete(pm.Peers, id)
-		}
-		log.Println("[SHUTDOWN] All peers closed.")
+
+	log.Println("[SHUTDOWN] Initiating graceful shutdown...")
+	for id := range pm.Peers {
+		log.Printf("[SHUTDOWN] Closing peer %d", id)
+		delete(pm.Peers, id)
 	}
+	log.Println("[SHUTDOWN] All peers closed.")
+
 }
 func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
 	if len(peerIDs) == 0 {
@@ -21,17 +21,15 @@ func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
 
 	done := make(chan struct{})
 
-	pm.managerQueue <- func() {
-		minID := peerIDs[0]
-		for _, id := range peerIDs[1:] {
-			if id < minID {
-				minID = id
-			}
+	minID := peerIDs[0]
+	for _, id := range peerIDs[1:] {
+		if id < minID {
+			minID = id
 		}
-		pm.HostID = minID
-		log.Printf("[HOST] Initial host set to: %d", pm.HostID)
-		close(done)
 	}
+	pm.HostID = minID
+	log.Printf("[HOST] Initial host set to: %d", pm.HostID)
+	close(done)
 
 	<-done // wait until HostID is set before continuing
 }
