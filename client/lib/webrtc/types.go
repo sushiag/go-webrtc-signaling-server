@@ -40,6 +40,11 @@ type pmSendDataToPeer struct {
 	data     []byte
 	resultCh chan error
 }
+type pmSendJSONToPeer struct {
+	peerID   uint64
+	payload  Payload
+	resultCh chan error
+}
 type pmHandleIncomingMsg struct {
 	msg      SignalingMessage
 	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
@@ -50,7 +55,6 @@ type pmRemovePeer struct {
 }
 type pmHandleICECandidate struct {
 	msg      SignalingMessage
-	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
 	resultCh chan error
 }
 type pmCreateAndSendOffer struct {
@@ -65,11 +69,11 @@ type pmHandleOffer struct {
 }
 
 type PeerManager struct {
-	UserID                uint64
-	HostID                uint64
-	Peers                 map[uint64]*Peer
-	Config                webrtc.Configuration
-	SignalingMessage      SignalingMessage
+	userID                uint64
+	hostID                uint64
+	peers                 map[uint64]*Peer
+	config                webrtc.Configuration
+	signalingMessage      SignalingMessage
 	onPeerCreated         func(*Peer, SignalingMessage)
 	managerQueue          chan func()
 	sendSignalFunc        func(SignalingMessage) error

@@ -20,8 +20,8 @@ func (p *Peer) handleSendLoop() {
 	}
 }
 
-func (pm *PeerManager) sendDataToPeerSwitch(peerID uint64, data []byte) error {
-	peer, ok := pm.Peers[peerID]
+func (pm *PeerManager) sendBytesToPeerSwitch(peerID uint64, data []byte) error {
+	peer, ok := pm.peers[peerID]
 	if !ok || peer.DataChannel == nil {
 		log.Printf("[SendDataToPeer] Peer %d not found or no data channel", peerID)
 		return nil
@@ -34,36 +34,21 @@ func (pm *PeerManager) sendDataToPeerSwitch(peerID uint64, data []byte) error {
 	return nil
 }
 
-func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
-	// TODO: convert to pmEvent, struct ok, switch ok
-	pm.managerQueue <- func() {
-		peer, ok := pm.Peers[peerID]
-		if !ok || peer.DataChannel == nil {
-			log.Printf("[SendDataToPeer] Peer %d not found or no data channel", peerID)
-			return
-		}
-		if err := peer.DataChannel.Send(data); err != nil {
-			log.Printf("[SendDataToPeer] Failed sending to peer %d: %v", peerID, err)
-		}
-	}
-	return nil
-}
-
-func (pm *PeerManager) SendPayloadToPeer(peerID uint64, payload Payload) error {
+func (pm *PeerManager) sendJSONToPeerSwitch(peerID uint64, payload Payload) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	return pm.SendDataToPeer(peerID, data)
+	return pm.sendBytesToPeerSwitch(peerID, data)
 }
 
 func (pm *PeerManager) removePeerSwitch(peerID uint64, sendFunc func(SignalingMessage) error) {
-	peer, ok := pm.Peers[peerID]
-	if !ok {
+	peer, exists := pm.peers[peerID]
+	if !exists {
 		log.Printf("[REMOVE ERROR] Peer %d not found for removal", peerID)
 		return
 	}
-	delete(pm.Peers, peerID)
+	delete(pm.peers, peerID)
 
 	if peer.Connection != nil {
 		peer.Connection.Close()
@@ -71,54 +56,20 @@ func (pm *PeerManager) removePeerSwitch(peerID uint64, sendFunc func(SignalingMe
 
 	log.Printf("[PEER] Peer %d removed successfully", peerID)
 
-	if peerID == pm.HostID {
+	if peerID == pm.hostID {
 		newHostID := pm.findNextHost()
 		if newHostID != 0 {
-			pm.HostID = newHostID
-			log.Printf("[HOST] Host reassigned to %d", pm.HostID)
+			pm.hostID = newHostID
+			log.Printf("[HOST] Host reassigned to %d", pm.hostID)
+
 			hostChangeMsg := SignalingMessage{
 				Type:   common.MessageTypeHostChanged,
-				Sender: pm.UserID,
+				Sender: pm.userID,
 				Target: 0,
-				Users:  pm.GetPeerIDs(),
+				Users:  pm.getPeerIDsSwitch(),
 			}
 			if err := sendFunc(hostChangeMsg); err != nil {
 				log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
-			}
-		}
-	}
-}
-
-func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage) error) {
-	// TODO: convert to pmEvent, struct ok, switch ok
-	pm.managerQueue <- func() {
-		peer, ok := pm.Peers[peerID]
-		if !ok {
-			log.Printf("[REMOVE ERROR] Peer %d not found for removal", peerID)
-			return
-		}
-		delete(pm.Peers, peerID)
-
-		if peer.Connection != nil {
-			peer.Connection.Close()
-		}
-
-		log.Printf("[PEER] Peer %d removed successfully", peerID)
-
-		if peerID == pm.HostID {
-			newHostID := pm.findNextHost()
-			if newHostID != 0 {
-				pm.HostID = newHostID
-				log.Printf("[HOST] Host reassigned to %d", pm.HostID)
-				hostChangeMsg := SignalingMessage{
-					Type:   common.MessageTypeHostChanged,
-					Sender: pm.UserID,
-					Target: 0,
-					Users:  pm.GetPeerIDs(),
-				}
-				if err := sendFunc(hostChangeMsg); err != nil {
-					log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
-				}
 			}
 		}
 	}

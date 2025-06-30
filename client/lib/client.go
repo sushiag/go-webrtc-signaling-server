@@ -168,7 +168,7 @@ func (c *Client) StartSession() error {
 }
 
 func (c *Client) SendMessageToPeer(peerID uint64, data string) error {
-	return c.PeerManager.SendDataToPeer(peerID, []byte(data))
+	return c.PeerManager.SendBytesToPeer(peerID, []byte(data))
 }
 
 func (c *Client) LeaveRoom(peerID uint64) {
