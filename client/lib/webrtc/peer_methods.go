@@ -2,6 +2,7 @@ package webrtc
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
@@ -19,7 +20,22 @@ func (p *Peer) handleSendLoop() {
 	}
 }
 
+func (pm *PeerManager) sendDataToPeerSwitch(peerID uint64, data []byte) error {
+	peer, ok := pm.Peers[peerID]
+	if !ok || peer.DataChannel == nil {
+		log.Printf("[SendDataToPeer] Peer %d not found or no data channel", peerID)
+		return nil
+	}
+
+	if err := peer.DataChannel.Send(data); err != nil {
+		return fmt.Errorf("[SendDataToPeer] Failed sending to peer %d: %v", peerID, err)
+	}
+
+	return nil
+}
+
 func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
+	// TODO: convert to pmEvent, struct ok, switch ok
 	pm.managerQueue <- func() {
 		peer, ok := pm.Peers[peerID]
 		if !ok || peer.DataChannel == nil {
@@ -41,7 +57,40 @@ func (pm *PeerManager) SendPayloadToPeer(peerID uint64, payload Payload) error {
 	return pm.SendDataToPeer(peerID, data)
 }
 
+func (pm *PeerManager) removePeerSwitch(peerID uint64, sendFunc func(SignalingMessage) error) {
+	peer, ok := pm.Peers[peerID]
+	if !ok {
+		log.Printf("[REMOVE ERROR] Peer %d not found for removal", peerID)
+		return
+	}
+	delete(pm.Peers, peerID)
+
+	if peer.Connection != nil {
+		peer.Connection.Close()
+	}
+
+	log.Printf("[PEER] Peer %d removed successfully", peerID)
+
+	if peerID == pm.HostID {
+		newHostID := pm.findNextHost()
+		if newHostID != 0 {
+			pm.HostID = newHostID
+			log.Printf("[HOST] Host reassigned to %d", pm.HostID)
+			hostChangeMsg := SignalingMessage{
+				Type:   common.MessageTypeHostChanged,
+				Sender: pm.UserID,
+				Target: 0,
+				Users:  pm.GetPeerIDs(),
+			}
+			if err := sendFunc(hostChangeMsg); err != nil {
+				log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
+			}
+		}
+	}
+}
+
 func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage) error) {
+	// TODO: convert to pmEvent, struct ok, switch ok
 	pm.managerQueue <- func() {
 		peer, ok := pm.Peers[peerID]
 		if !ok {

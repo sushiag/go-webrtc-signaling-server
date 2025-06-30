@@ -2,6 +2,7 @@ package webrtc
 
 import (
 	"context"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
@@ -20,17 +21,62 @@ type Peer struct {
 	sendChan chan string
 }
 
+type pmEvent any
+
+type pmCloseAll struct{}
+type pmGetPeerIDs struct {
+	resultCh chan []uint64
+}
+type pmCheckAllConnectedAndDisconnect struct {
+	resultCh chan error
+}
+type pmWaitForDataChannel struct {
+	peerID   uint64
+	timeout  time.Duration
+	resultCh chan error
+}
+type pmSendDataToPeer struct {
+	peerID   uint64
+	data     []byte
+	resultCh chan error
+}
+type pmHandleIncomingMsg struct {
+	msg      SignalingMessage
+	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
+}
+type pmRemovePeer struct {
+	peerID   uint64
+	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
+}
+type pmHandleICECandidate struct {
+	msg      SignalingMessage
+	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
+	resultCh chan error
+}
+type pmCreateAndSendOffer struct {
+	peerID   uint64
+	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
+	resultCh chan error
+}
+type pmHandleOffer struct {
+	msg      SignalingMessage
+	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
+	resultCh chan error
+}
+
 type PeerManager struct {
-	UserID             uint64
-	HostID             uint64
-	Peers              map[uint64]*Peer
-	Config             webrtc.Configuration
-	SignalingMessage   SignalingMessage
-	onPeerCreated      func(*Peer, SignalingMessage)
-	managerQueue       chan func()
-	sendSignalFunc     func(SignalingMessage) error
-	iceCandidateBuffer map[uint64][]webrtc.ICECandidateInit
-	outgoingMessages   chan SignalingMessage
+	UserID                uint64
+	HostID                uint64
+	Peers                 map[uint64]*Peer
+	Config                webrtc.Configuration
+	SignalingMessage      SignalingMessage
+	onPeerCreated         func(*Peer, SignalingMessage)
+	managerQueue          chan func()
+	sendSignalFunc        func(SignalingMessage) error
+	iceCandidateBuffer    map[uint64][]webrtc.ICECandidateInit
+	outgoingMessages      chan SignalingMessage
+	pmEventCh             chan pmEvent
+	processingLoopStarted bool
 }
 
 type SignalingMessage struct {
