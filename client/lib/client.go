@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
@@ -79,109 +78,9 @@ func (c *Client) Connect() error {
 			Users:     msg.Users,
 		}
 		c.PeerManager.HandleIncomingMessage(signalingMsg, c.wsResponseCh)
-		// c.handleSignalingMessage(webrtc.SignalingMessage{
-		// 	Type:      msg.Type,
-		// 	Sender:    msg.Sender,
-		// 	Target:    msg.Target,
-		// 	SDP:       msg.SDP,
-		// 	Candidate: msg.Candidate,
-		// 	Text:      msg.Text,
-		// 	Users:     msg.Users,
-		// })
 	})
 
-	// go c.dispatchPeerCommands()
-
 	return nil
-}
-
-// Handles incoming WS Messages
-func (c *Client) handleSignalingMessage(msg webrtc.SignalingMessage) {
-	log.Printf("[Client] Handling signaling message: %s from %d", msg.Type, msg.Sender)
-
-	switch msg.Type {
-	case common.MessageTypePeerJoined, common.MessageTypeRoomCreated:
-		{
-			log.Printf("[Client] Peer %d joined or created room", msg.Sender)
-			c.cmdChan <- peerCommand{cmd: "add", peerID: msg.Sender}
-		}
-
-	case common.MessageTypeDisconnect:
-		{
-			log.Printf("[Client] Peer %d disconnected", msg.Sender)
-			c.cmdChan <- peerCommand{cmd: "remove", peerID: msg.Sender}
-		}
-
-	case common.MessageTypePeerList,
-		common.MessageTypeHostChanged,
-		common.MessageTypeStartSession:
-		{
-			c.PeerManager.HandleIncomingMessage(msg, c.wsResponseCh)
-		}
-
-	case common.MessageTypeOffer,
-		common.MessageTypeAnswer,
-		common.MessageTypeICECandidate,
-		common.MessageTypeSendMessage:
-		{
-			log.Printf("[Client] Routing signaling to peer %d: %s", msg.Sender, msg.Type)
-			c.cmdChan <- peerCommand{cmd: "send", peerID: msg.Sender, msg: msg}
-		}
-
-	default:
-		{
-			log.Printf("[Client] Unknown message type: %s", msg.Type)
-		}
-	}
-}
-
-// Forwards WS Messages to the Peer Manager
-func (c *Client) dispatchPeerCommands() {
-	peers := make(map[uint64]chan webrtc.SignalingMessage)
-
-	for cmd := range c.cmdChan {
-		switch cmd.cmd {
-		case "add":
-			{
-				if _, exists := peers[cmd.peerID]; exists {
-					continue
-				}
-				log.Printf("[Client] Adding peer %d", cmd.peerID)
-				msgCh := make(chan webrtc.SignalingMessage, 16)
-				peers[cmd.peerID] = msgCh
-
-				for msg := range msgCh {
-					c.PeerManager.HandleIncomingMessage(msg, c.wsResponseCh)
-				}
-			}
-
-		case "send":
-			{
-				ch, ok := peers[cmd.peerID]
-				if !ok {
-					log.Printf("[Client] Auto-adding unknown peer %d before sending", cmd.peerID)
-					msgCh := make(chan webrtc.SignalingMessage, 16)
-					peers[cmd.peerID] = msgCh
-
-					for msg := range ch {
-						c.PeerManager.HandleIncomingMessage(msg, c.wsResponseCh)
-					}
-
-					ch = msgCh
-				}
-				ch <- cmd.msg
-			}
-
-		case "remove":
-			{
-				if ch, ok := peers[cmd.peerID]; ok {
-					log.Printf("[Client] Removing peer %d", cmd.peerID)
-					close(ch)
-					delete(peers, cmd.peerID)
-				}
-			}
-		}
-	}
 }
 
 func (c *Client) CreateRoom() error {

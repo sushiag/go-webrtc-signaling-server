@@ -57,19 +57,10 @@ func (pm *PeerManager) startProcessingEvents() {
 	go func() {
 		for event := range pm.pmEventCh {
 			switch event := event.(type) {
-			case pmCloseAll:
-				{
-					pm.closeAllSwitch()
-				}
 			case pmGetPeerIDs:
 				{
 					peerIDs := pm.getPeerIDsSwitch()
 					event.resultCh <- peerIDs
-				}
-			case pmCheckAllConnectedAndDisconnect:
-				{
-					err := pm.checkAllConnectedAndDisconnectSwitch()
-					event.resultCh <- err
 				}
 			case pmSendDataToPeer:
 				{
@@ -88,18 +79,6 @@ func (pm *PeerManager) startProcessingEvents() {
 			case pmRemovePeer:
 				{
 					pm.removePeerSwitch(event.peerID, event.responseCh)
-				}
-			case pmHandleICECandidate:
-				{
-					pm.handleICECandidateSwitch(event.msg)
-				}
-			case pmCreateAndSendOffer:
-				{
-					pm.createAndSendOfferSwitch(event.peerID, event.responseCh)
-				}
-			case pmHandleOffer:
-				{
-					pm.handleOfferSwitch(event.msg, event.responseCh)
 				}
 			default:
 				{

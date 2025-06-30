@@ -43,11 +43,3 @@ func (pm *PeerManager) findNextHost() uint64 {
 	}
 	return nextHostID
 }
-
-func (pm *PeerManager) getPeerIDs() []uint64 {
-	peerIDs := make([]uint64, len(pm.peers))
-	for i, peer := range pm.peers {
-		peerIDs[i] = peer.ID
-	}
-	return peerIDs
-}

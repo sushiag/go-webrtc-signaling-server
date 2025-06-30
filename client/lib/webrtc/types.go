@@ -23,12 +23,24 @@ type Peer struct {
 
 type pmEvent any
 
-type pmCloseAll struct{}
+// type pmCloseAll struct{}
+// type pmCheckAllConnectedAndDisconnect struct {
+// 	resultCh chan error
+// }
+// type pmHandleICECandidate struct {
+// 	msg SignalingMessage
+// }
+// type pmCreateAndSendOffer struct {
+// 	peerID     uint64
+// 	responseCh chan SignalingMessage
+// }
+// type pmHandleOffer struct {
+// 	msg        SignalingMessage
+// 	responseCh chan SignalingMessage
+// }
+
 type pmGetPeerIDs struct {
 	resultCh chan []uint64
-}
-type pmCheckAllConnectedAndDisconnect struct {
-	resultCh chan error
 }
 type pmWaitForDataChannel struct {
 	peerID   uint64
@@ -51,17 +63,6 @@ type pmHandleIncomingMsg struct {
 }
 type pmRemovePeer struct {
 	peerID     uint64
-	responseCh chan SignalingMessage
-}
-type pmHandleICECandidate struct {
-	msg SignalingMessage
-}
-type pmCreateAndSendOffer struct {
-	peerID     uint64
-	responseCh chan SignalingMessage
-}
-type pmHandleOffer struct {
-	msg        SignalingMessage
 	responseCh chan SignalingMessage
 }
 
