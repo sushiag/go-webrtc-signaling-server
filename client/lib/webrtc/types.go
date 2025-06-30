@@ -46,26 +46,23 @@ type pmSendJSONToPeer struct {
 	resultCh chan error
 }
 type pmHandleIncomingMsg struct {
-	msg      SignalingMessage
-	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
+	msg        SignalingMessage
+	responseCh chan SignalingMessage
 }
 type pmRemovePeer struct {
-	peerID   uint64
-	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
+	peerID     uint64
+	responseCh chan SignalingMessage
 }
 type pmHandleICECandidate struct {
-	msg      SignalingMessage
-	resultCh chan error
+	msg SignalingMessage
 }
 type pmCreateAndSendOffer struct {
-	peerID   uint64
-	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
-	resultCh chan error
+	peerID     uint64
+	responseCh chan SignalingMessage
 }
 type pmHandleOffer struct {
-	msg      SignalingMessage
-	sendFunc func(SignalingMessage) error // TODO: maybe not send a func here
-	resultCh chan error
+	msg        SignalingMessage
+	responseCh chan SignalingMessage
 }
 
 type PeerManager struct {
@@ -76,9 +73,7 @@ type PeerManager struct {
 	signalingMessage      SignalingMessage
 	onPeerCreated         func(*Peer, SignalingMessage)
 	managerQueue          chan func()
-	sendSignalFunc        func(SignalingMessage) error
 	iceCandidateBuffer    map[uint64][]webrtc.ICECandidateInit
-	outgoingMessages      chan SignalingMessage
 	pmEventCh             chan pmEvent
 	processingLoopStarted bool
 }
