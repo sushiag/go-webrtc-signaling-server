@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 type Client struct {
-	Websocket   *websocket.Client
-	PeerManager *webrtc.PeerManager
-	cmdChan     chan peerCommand
+	Websocket    *websocket.Client
+	PeerManager  *webrtc.PeerManager
+	cmdChan      chan peerCommand
+	wsResponseCh chan webrtc.SignalingMessage
 }
 
 type peerCommand struct {
@@ -22,11 +22,37 @@ type peerCommand struct {
 }
 
 func NewClient(wsEndpoint string) *Client {
-	return &Client{
-		Websocket: websocket.NewClient(wsEndpoint),
-		cmdChan:   make(chan peerCommand),
+	client := &Client{
+		Websocket:    websocket.NewClient(wsEndpoint),
+		cmdChan:      make(chan peerCommand),
+		wsResponseCh: make(chan webrtc.SignalingMessage),
 	}
+
+	// NOTE: this goroutine will be responsible for sending websocket messages.
+	//
+	// * Send websocket messages by sending the message through the channel
+	// * Do NOT send websocket messages anywhere outside this loop
+	go func() {
+		for {
+			msg := <-client.wsResponseCh
+			err := client.Websocket.Send(websocket.Message{
+				Type:      msg.Type,
+				Sender:    msg.Sender,
+				Target:    msg.Target,
+				SDP:       msg.SDP,
+				Candidate: msg.Candidate,
+				Text:      msg.Text,
+				Users:     msg.Users,
+			})
+			if err != nil {
+				log.Printf("[ERROR] failed to send websocket message: %v", err)
+			}
+		}
+	}()
+
+	return client
 }
+
 func (c *Client) Connect() error {
 	if err := c.Websocket.PreAuthenticate(); err != nil {
 		return fmt.Errorf("authentication failed: %v", err)
@@ -43,7 +69,7 @@ func (c *Client) Connect() error {
 	c.Websocket.Start()
 
 	c.Websocket.SetOnMessage(func(msg websocket.Message) {
-		c.handleSignalingMessage(webrtc.SignalingMessage{
+		signalingMsg := webrtc.SignalingMessage{
 			Type:      msg.Type,
 			Sender:    msg.Sender,
 			Target:    msg.Target,
@@ -51,107 +77,11 @@ func (c *Client) Connect() error {
 			Candidate: msg.Candidate,
 			Text:      msg.Text,
 			Users:     msg.Users,
-		})
+		}
+		c.PeerManager.HandleIncomingMessage(signalingMsg, c.wsResponseCh)
 	})
-
-	go c.dispatchPeerCommands()
-	go c.forwardOutgoingMessages()
 
 	return nil
-}
-
-func (c *Client) handleSignalingMessage(msg webrtc.SignalingMessage) {
-	log.Printf("[Client] Handling signaling message: %s from %d", msg.Type, msg.Sender)
-
-	switch msg.Type {
-	case common.MessageTypePeerJoined, common.MessageTypeRoomCreated:
-		log.Printf("[Client] Peer %d joined or created room", msg.Sender)
-		c.cmdChan <- peerCommand{cmd: "add", peerID: msg.Sender}
-
-	case common.MessageTypeDisconnect:
-		log.Printf("[Client] Peer %d disconnected", msg.Sender)
-		c.cmdChan <- peerCommand{cmd: "remove", peerID: msg.Sender}
-
-	case common.MessageTypePeerList,
-		common.MessageTypeHostChanged,
-		common.MessageTypeStartSession:
-		c.PeerManager.HandleIncomingMessage(msg, c.respond)
-
-	case common.MessageTypeOffer,
-		common.MessageTypeAnswer,
-		common.MessageTypeICECandidate,
-		common.MessageTypeSendMessage:
-		log.Printf("[Client] Routing signaling to peer %d: %s", msg.Sender, msg.Type)
-		c.cmdChan <- peerCommand{cmd: "send", peerID: msg.Sender, msg: msg}
-
-	default:
-		log.Printf("[Client] Unknown message type: %s", msg.Type)
-	}
-}
-
-func (c *Client) dispatchPeerCommands() {
-	peers := make(map[uint64]chan webrtc.SignalingMessage)
-
-	for cmd := range c.cmdChan {
-		switch cmd.cmd {
-		case "add":
-			if _, exists := peers[cmd.peerID]; exists {
-				continue
-			}
-			log.Printf("[Client] Adding peer %d", cmd.peerID)
-			msgCh := make(chan webrtc.SignalingMessage, 16)
-			peers[cmd.peerID] = msgCh
-
-			go func(peerID uint64, ch <-chan webrtc.SignalingMessage) {
-				for msg := range ch {
-					c.PeerManager.HandleIncomingMessage(msg, c.respond)
-				}
-			}(cmd.peerID, msgCh)
-
-		case "send":
-			ch, ok := peers[cmd.peerID]
-			if !ok {
-				log.Printf("[Client] Auto-adding unknown peer %d before sending", cmd.peerID)
-				msgCh := make(chan webrtc.SignalingMessage, 16)
-				peers[cmd.peerID] = msgCh
-				go func(peerID uint64, ch <-chan webrtc.SignalingMessage) {
-					for msg := range ch {
-						c.PeerManager.HandleIncomingMessage(msg, c.respond)
-					}
-				}(cmd.peerID, msgCh)
-				ch = msgCh
-			}
-			ch <- cmd.msg
-
-		case "remove":
-			if ch, ok := peers[cmd.peerID]; ok {
-				log.Printf("[Client] Removing peer %d", cmd.peerID)
-				close(ch)
-				delete(peers, cmd.peerID)
-			}
-		}
-	}
-}
-
-func (c *Client) forwardOutgoingMessages() {
-	for msg := range c.PeerManager.OutgoingMessages() {
-		log.Printf("[Client] Sending: %+v", msg)
-		if err := c.respond(msg); err != nil {
-			log.Printf("[Client] Send error: %v", err)
-		}
-	}
-}
-
-func (c *Client) respond(msg webrtc.SignalingMessage) error {
-	return c.Websocket.Send(websocket.Message{
-		Type:      msg.Type,
-		Sender:    msg.Sender,
-		Target:    msg.Target,
-		SDP:       msg.SDP,
-		Candidate: msg.Candidate,
-		Text:      msg.Text,
-		Users:     msg.Users,
-	})
 }
 
 func (c *Client) CreateRoom() error {
@@ -168,14 +98,21 @@ func (c *Client) StartSession() error {
 }
 
 func (c *Client) SendMessageToPeer(peerID uint64, data string) error {
-	return c.PeerManager.SendDataToPeer(peerID, []byte(data))
+	return c.PeerManager.SendBytesToPeer(peerID, []byte(data))
+}
+
+func (c *Client) PopMessage() ([]byte, bool) {
+	// NOTE:
+	// to implement this, we must
+	// 1. initialize a [][]byte at startup; this will be the message storage
+	// 2. push the messages onto a [][]byte every time the client receives a new WebRTC message
+	// 3a. when the function is called, return the first one and true
+	// 3b. when the function is called and the array is empty, return empty and false
+	panic("TODO: implement this function")
 }
 
 func (c *Client) LeaveRoom(peerID uint64) {
-	c.PeerManager.RemovePeer(peerID, func(msg webrtc.SignalingMessage) error {
-		log.Printf("[Client] Removed peer %d, signaling: %+v", peerID, msg)
-		return nil
-	})
+	c.PeerManager.RemovePeer(peerID, c.wsResponseCh)
 }
 
 func (c *Client) Close() {

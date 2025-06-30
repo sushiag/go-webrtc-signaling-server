@@ -60,7 +60,9 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 		for _, sender := range clients {
 			senderID := strconv.FormatUint(sender.Websocket.UserID, 10)
 
-			for peerID := range sender.PeerManager.Peers {
+			peerIDs := sender.PeerManager.GetPeerIDs()
+			assert.Equal(t, len(peerIDs), 3, "client %d has missing peers", sender)
+			for _, peerID := range peerIDs {
 				receiverID := strconv.FormatUint(peerID, 10)
 				message := "Round " + strconv.Itoa(round) +
 					" | from client " + senderID +

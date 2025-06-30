@@ -2,75 +2,66 @@ package webrtc
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
-func (p *Peer) handleSendLoop() {
-	for {
-		select {
-		case msg := <-p.sendChan:
-			log.Printf("[Peer %d] Outgoing message: %s", p.ID, msg)
-		case <-p.ctx.Done():
-			log.Printf("[Peer %d] sendLoop shutdown", p.ID)
-			return
-		}
+func (pm *PeerManager) sendBytesToPeerSwitch(peerID uint64, data []byte) error {
+	peer, peerExists := pm.peers[peerID]
+	if !peerExists {
+		return fmt.Errorf("peer %d not found", peerID)
 	}
-}
 
-func (pm *PeerManager) SendDataToPeer(peerID uint64, data []byte) error {
-	pm.managerQueue <- func() {
-		peer, ok := pm.Peers[peerID]
-		if !ok || peer.DataChannel == nil {
-			log.Printf("[SendDataToPeer] Peer %d not found or no data channel", peerID)
-			return
-		}
-		if err := peer.DataChannel.Send(data); err != nil {
-			log.Printf("[SendDataToPeer] Failed sending to peer %d: %v", peerID, err)
-		}
+	if peer.DataChannel == nil {
+		return fmt.Errorf("no data channel initialized for peer %d", peerID)
 	}
+
+	if err := peer.DataChannel.Send(data); err != nil {
+		return fmt.Errorf("failed sending to peer %d: %v", peerID, err)
+	}
+
 	return nil
 }
 
-func (pm *PeerManager) SendPayloadToPeer(peerID uint64, payload Payload) error {
+func (pm *PeerManager) sendJSONToPeerSwitch(peerID uint64, payload Payload) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal payload to JSON")
 	}
-	return pm.SendDataToPeer(peerID, data)
+
+	return pm.sendBytesToPeerSwitch(peerID, data)
 }
 
-func (pm *PeerManager) RemovePeer(peerID uint64, sendFunc func(SignalingMessage) error) {
-	pm.managerQueue <- func() {
-		peer, ok := pm.Peers[peerID]
-		if !ok {
-			log.Printf("[REMOVE ERROR] Peer %d not found for removal", peerID)
-			return
-		}
-		delete(pm.Peers, peerID)
+func (pm *PeerManager) removePeerSwitch(peerID uint64, responseCh chan SignalingMessage) {
+	peer, exists := pm.peers[peerID]
+	if !exists {
+		log.Printf("[REMOVE ERROR] Peer %d not found for removal\n", peerID)
+		return
+	}
+	delete(pm.peers, peerID)
 
-		if peer.Connection != nil {
-			peer.Connection.Close()
-		}
+	if peer.Connection != nil {
+		peer.Connection.Close()
+	}
 
-		log.Printf("[PEER] Peer %d removed successfully", peerID)
+	log.Printf("[PEER] Peer %d removed successfully\n", peerID)
 
-		if peerID == pm.HostID {
-			newHostID := pm.findNextHost()
-			if newHostID != 0 {
-				pm.HostID = newHostID
-				log.Printf("[HOST] Host reassigned to %d", pm.HostID)
-				hostChangeMsg := SignalingMessage{
-					Type:   common.MessageTypeHostChanged,
-					Sender: pm.UserID,
-					Target: 0,
-					Users:  pm.GetPeerIDs(),
-				}
-				if err := sendFunc(hostChangeMsg); err != nil {
-					log.Printf("[SIGNALING] Failed to send host-changed message: %v", err)
-				}
+	if peerID == pm.hostID {
+		newHostID := pm.findNextHost()
+		if newHostID != 0 {
+			pm.hostID = newHostID
+			log.Printf("[HOST] Host reassigned to %d\n", pm.hostID)
+
+			hostChangeMsg := SignalingMessage{
+				Type:   common.MessageTypeHostChanged,
+				Sender: pm.userID,
+				Target: 0,
+				Users:  pm.getPeerIDsSwitch(),
 			}
+			log.Println("[INFO] Sending host-changed message")
+			responseCh <- hostChangeMsg
 		}
 	}
 }

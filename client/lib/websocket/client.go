@@ -44,7 +44,7 @@ func (c *Client) Connect() error {
 
 func (c *Client) ConnectWithRetry(maxRetries int) error {
 	backoff := time.Second
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		err := c.Connect()
 		if err == nil {
 			return nil

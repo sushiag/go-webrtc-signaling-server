@@ -7,9 +7,9 @@ import (
 func (pm *PeerManager) GracefulShutdown() {
 
 	log.Println("[SHUTDOWN] Initiating graceful shutdown...")
-	for id := range pm.Peers {
+	for id := range pm.peers {
 		log.Printf("[SHUTDOWN] Closing peer %d", id)
-		delete(pm.Peers, id)
+		delete(pm.peers, id)
 	}
 	log.Println("[SHUTDOWN] All peers closed.")
 
@@ -27,8 +27,8 @@ func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
 			minID = id
 		}
 	}
-	pm.HostID = minID
-	log.Printf("[HOST] Initial host set to: %d", pm.HostID)
+	pm.hostID = minID
+	log.Printf("[HOST] Initial host set to: %d", pm.hostID)
 	close(done)
 
 	<-done // wait until HostID is set before continuing
@@ -36,14 +36,10 @@ func (pm *PeerManager) SetInitialHost(peerIDs []uint64) {
 
 func (pm *PeerManager) findNextHost() uint64 {
 	var nextHostID uint64 = 0
-	for id := range pm.Peers {
+	for id := range pm.peers {
 		if nextHostID == 0 || id < nextHostID {
 			nextHostID = id
 		}
 	}
 	return nextHostID
-}
-
-func (pm *PeerManager) OnPeerCreated(f func(*Peer, SignalingMessage)) {
-	pm.onPeerCreated = f
 }

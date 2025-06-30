@@ -2,6 +2,7 @@ package webrtc
 
 import (
 	"context"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
@@ -20,17 +21,62 @@ type Peer struct {
 	sendChan chan string
 }
 
+type pmEvent any
+
+// type pmCloseAll struct{}
+// type pmCheckAllConnectedAndDisconnect struct {
+// 	resultCh chan error
+// }
+// type pmHandleICECandidate struct {
+// 	msg SignalingMessage
+// }
+// type pmCreateAndSendOffer struct {
+// 	peerID     uint64
+// 	responseCh chan SignalingMessage
+// }
+// type pmHandleOffer struct {
+// 	msg        SignalingMessage
+// 	responseCh chan SignalingMessage
+// }
+
+type pmGetPeerIDs struct {
+	resultCh chan []uint64
+}
+type pmWaitForDataChannel struct {
+	peerID   uint64
+	timeout  time.Duration
+	resultCh chan error
+}
+type pmSendDataToPeer struct {
+	peerID   uint64
+	data     []byte
+	resultCh chan error
+}
+type pmSendJSONToPeer struct {
+	peerID   uint64
+	payload  Payload
+	resultCh chan error
+}
+type pmHandleIncomingMsg struct {
+	msg        SignalingMessage
+	responseCh chan SignalingMessage
+}
+type pmRemovePeer struct {
+	peerID     uint64
+	responseCh chan SignalingMessage
+}
+
 type PeerManager struct {
-	UserID             uint64
-	HostID             uint64
-	Peers              map[uint64]*Peer
-	Config             webrtc.Configuration
-	SignalingMessage   SignalingMessage
-	onPeerCreated      func(*Peer, SignalingMessage)
-	managerQueue       chan func()
-	sendSignalFunc     func(SignalingMessage) error
-	iceCandidateBuffer map[uint64][]webrtc.ICECandidateInit
-	outgoingMessages   chan SignalingMessage
+	userID                uint64
+	hostID                uint64
+	peers                 map[uint64]*Peer
+	config                webrtc.Configuration
+	signalingMessage      SignalingMessage
+	onPeerCreated         func(*Peer, SignalingMessage)
+	managerQueue          chan func()
+	iceCandidateBuffer    map[uint64][]webrtc.ICECandidateInit
+	pmEventCh             chan pmEvent
+	processingLoopStarted bool
 }
 
 type SignalingMessage struct {
