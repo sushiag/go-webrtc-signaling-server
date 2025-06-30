@@ -52,6 +52,7 @@ func NewClient(wsEndpoint string) *Client {
 
 	return client
 }
+
 func (c *Client) Connect() error {
 	if err := c.Websocket.PreAuthenticate(); err != nil {
 		return fmt.Errorf("authentication failed: %v", err)
@@ -98,6 +99,16 @@ func (c *Client) StartSession() error {
 
 func (c *Client) SendMessageToPeer(peerID uint64, data string) error {
 	return c.PeerManager.SendBytesToPeer(peerID, []byte(data))
+}
+
+func (c *Client) PopMessage() ([]byte, bool) {
+	// NOTE:
+	// to implement this, we must
+	// 1. initialize a [][]byte at startup; this will be the message storage
+	// 2. push the messages onto a [][]byte every time the client receives a new WebRTC message
+	// 3a. when the function is called, return the first one and true
+	// 3b. when the function is called and the array is empty, return empty and false
+	panic("TODO: implement this function")
 }
 
 func (c *Client) LeaveRoom(peerID uint64) {
