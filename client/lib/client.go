@@ -47,6 +47,8 @@ func NewClient(wsEndpoint string) *Client {
 				log.Printf("[ERROR] failed to send websocket message: %v", err)
 			}
 		}
+
+		log.Println("[INFO] closing WS send loop")
 	}()
 
 	return client
