@@ -46,8 +46,7 @@ func TestEndToEndSignaling(t *testing.T) {
 		t.Logf("---- Round %d ----", round)
 		for _, sender := range clients {
 			peerIDs := sender.PeerManager.GetPeerIDs()
-			// TODO: replace this with an assert
-			t.Logf("peer IDs for %d: %v", sender.Websocket.UserID, peerIDs)
+			assert.Equal(t, len(peerIDs), 1, "client %d has missing peers", sender)
 			for _, peerID := range peerIDs {
 				message := "Round " + strconv.Itoa(round) + " from client " + strconv.FormatUint(sender.Websocket.UserID, 10)
 				err := sender.SendMessageToPeer(peerID, message)

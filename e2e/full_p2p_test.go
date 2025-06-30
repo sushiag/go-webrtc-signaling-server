@@ -48,6 +48,11 @@ func TestP2PAfterStartSession(t *testing.T) {
 	assert.Nil(t, clientA.Websocket.Conn, "Client A should be disconnected from server")
 	assert.Nil(t, clientB.Websocket.Conn, "Client B should be disconnected from server")
 
+	// NOTE: had to add this sleep because it's too fast now xD
+	// * added a note in client/lib/websocket/send.go on how to avoid sleeping
+	// ** suffering from success
+	time.Sleep(500 * time.Millisecond)
+
 	err = clientA.SendMessageToPeer(clientB.Websocket.UserID, "P2P-only message from A")
 	assert.NoError(t, err, "Client A failed to send P2P message to Client B after StartSession")
 
