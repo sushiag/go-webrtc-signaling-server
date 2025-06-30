@@ -33,8 +33,7 @@ func NewClient(wsEndpoint string) *Client {
 	// * Send websocket messages by sending the message through the channel
 	// * Do NOT send websocket messages anywhere outside this loop
 	go func() {
-		for {
-			msg := <-client.wsResponseCh
+		for msg := range client.wsResponseCh {
 			err := client.Websocket.Send(websocket.Message{
 				Type:      msg.Type,
 				Sender:    msg.Sender,
