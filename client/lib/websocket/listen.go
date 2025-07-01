@@ -10,19 +10,11 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 )
 
-func (c *Client) SetOnMessage(f func(Message)) {
-	c.onMessage = f
-}
-
 func (c *Client) Start() {
-	go c.listenAndSendLoop()
-}
-
-func (c *Client) listenAndSendLoop() {
-
 	readCh := make(chan []byte)
 	errCh := make(chan error)
 
+	// Listen Loop
 	go func() {
 		for {
 			c.Conn.SetReadDeadline(time.Now().Add(time.Second * 30))
@@ -39,45 +31,48 @@ func (c *Client) listenAndSendLoop() {
 		}
 	}()
 
-	for {
-		select {
-		case msg := <-c.sendQueue:
-			if c.Conn == nil || c.isClosed {
-				log.Printf("[CLIENT SIGNALING] Cannot send, connection is closed.")
-				continue
-			}
-			if msg.RoomID == 0 {
-				msg.RoomID = c.RoomID
-			}
-			if msg.Sender == 0 {
-				msg.Sender = c.UserID
-			}
-			if err := c.Conn.WriteJSON(msg); err != nil {
-				log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type.String(), err)
-			}
-		case data := <-readCh:
-			var msg Message
-			if err := json.Unmarshal(data, &msg); err != nil {
-				log.Println("[CLIENT SIGNALING] Unmarshal error:", err)
-				log.Println("[CLIENT SIGNALING] Raw data:", string(data))
-				continue
-			}
+	// Send Loop
+	go func() {
+		for {
+			select {
+			case msg := <-c.sendQueue:
+				if c.Conn == nil || c.isClosed {
+					log.Printf("[CLIENT SIGNALING] Cannot send, connection is closed.")
+					continue
+				}
+				if msg.RoomID == 0 {
+					msg.RoomID = c.RoomID
+				}
+				if msg.Sender == 0 {
+					msg.Sender = c.UserID
+				}
+				if err := c.Conn.WriteJSON(msg); err != nil {
+					log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type.String(), err)
+				}
+			case data := <-readCh:
+				var msg Message
+				if err := json.Unmarshal(data, &msg); err != nil {
+					log.Println("[CLIENT SIGNALING] Unmarshal error:", err)
+					log.Println("[CLIENT SIGNALING] Raw data:", string(data))
+					continue
+				}
 
-			c.handleMessage(msg)
+				c.handleMessage(msg)
 
-		case err := <-errCh:
-			if closeErr, ok := err.(*websocket.CloseError); ok {
-				log.Printf("[CLIENT SIGNALING] WebSocket closed: %s", closeErr.Text)
-			} else {
-				log.Println("[CLIENT SIGNALING] Read error:", err)
+			case err := <-errCh:
+				if closeErr, ok := err.(*websocket.CloseError); ok {
+					log.Printf("[CLIENT SIGNALING] WebSocket closed: %s", closeErr.Text)
+				} else {
+					log.Println("[CLIENT SIGNALING] Read error:", err)
+				}
+				c.Close()
+				return
+
+			case <-c.doneCh:
+				return
 			}
-			c.Close()
-			return
-
-		case <-c.doneCh:
-			return
 		}
-	}
+	}()
 }
 
 func (c *Client) handleMessage(msg Message) {
@@ -91,8 +86,8 @@ func (c *Client) handleMessage(msg Message) {
 		c.RequestPeerList()
 
 	case common.MessageTypeStartSession:
-		if c.onMessage != nil {
-			c.onMessage(msg)
+		if c.OnMessage != nil {
+			c.OnMessage(msg)
 		}
 		c.CloseSignaling()
 		return
@@ -119,7 +114,7 @@ func (c *Client) handleMessage(msg Message) {
 		log.Printf("[CLIENT SIGNALING] Unhandled message type: %s", msg.Type)
 	}
 
-	if c.onMessage != nil {
-		c.onMessage(msg)
+	if c.OnMessage != nil {
+		c.OnMessage(msg)
 	}
 }

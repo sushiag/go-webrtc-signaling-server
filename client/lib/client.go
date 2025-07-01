@@ -69,7 +69,7 @@ func (c *Client) Connect() error {
 	}
 	c.Websocket.Start()
 
-	c.Websocket.SetOnMessage(func(msg websocket.Message) {
+	c.Websocket.OnMessage = func(msg websocket.Message) {
 		signalingMsg := webrtc.SignalingMessage{
 			Type:      msg.Type,
 			Sender:    msg.Sender,
@@ -80,7 +80,7 @@ func (c *Client) Connect() error {
 			Users:     msg.Users,
 		}
 		c.PeerManager.HandleIncomingMessage(signalingMsg, c.wsResponseCh)
-	})
+	}
 
 	return nil
 }

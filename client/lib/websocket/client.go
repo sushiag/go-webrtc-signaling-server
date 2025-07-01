@@ -17,7 +17,7 @@ type Client struct {
 	SessionKey string
 	UserID     uint64
 	RoomID     uint64
-	onMessage  func(Message)
+	OnMessage  func(Message)
 	doneCh     chan struct{}
 	sendQueue  chan Message
 	isClosed   bool
@@ -58,7 +58,7 @@ func (c *Client) ConnectWithRetry(maxRetries int) error {
 
 func (c *Client) SetServerURL(url string)           { c.ServerURL = url }
 func (c *Client) SetApiKey(key string)              { c.ApiKey = key }
-func (c *Client) SetMessageHandler(h func(Message)) { c.onMessage = h }
+func (c *Client) SetMessageHandler(h func(Message)) { c.OnMessage = h }
 func (c *Client) IsWebSocketClosed() bool {
 	return c.Conn == nil || c.Conn.CloseHandler() != nil
 }
