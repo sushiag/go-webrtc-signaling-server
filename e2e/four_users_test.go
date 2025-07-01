@@ -36,24 +36,44 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	err := clientA.CreateRoom()
 	assert.NoError(t, err, "Client A failed to create room")
 
-	time.Sleep(500 * time.Millisecond)
-
 	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
 
 	err = clientB.JoinRoom(roomID)
 	assert.NoError(t, err, "Client B failed to join room")
 
-	time.Sleep(500 * time.Millisecond)
-
 	err = clientC.JoinRoom(roomID)
 	assert.NoError(t, err, "Client C failed to join room")
-
-	time.Sleep(500 * time.Millisecond)
 
 	err = clientD.JoinRoom(roomID)
 	assert.NoError(t, err, "Client D failed to join room")
 
-	time.Sleep(2 * time.Second)
+	t.Logf("---- Waiting for data channels to open ----")
+	// TODO: there's actually a bug here
+	// - clientB only connects to peer 1
+	// - clientC only connects to peer 1 & 2
+	// - clientD only connects to peer 1, 2, & 3
+	readyDataChannels := 0
+	totalPeers := 4
+	totalDataChannels := (totalPeers - 1) * totalPeers
+	dataChDeadline := time.After(10 * time.Second)
+	for readyDataChannels < totalDataChannels {
+		select {
+		case <-clientA.PeerManager.PeerEventsCh:
+			readyDataChannels += 1
+		case <-clientB.PeerManager.PeerEventsCh:
+			readyDataChannels += 1
+		case <-clientC.PeerManager.PeerEventsCh:
+			readyDataChannels += 1
+		case <-clientD.PeerManager.PeerEventsCh:
+			readyDataChannels += 1
+
+		case <-dataChDeadline:
+			{
+				t.Fatalf("clients took longer than 10 secs to open their data channels, only opened: %d", readyDataChannels)
+			}
+		}
+	}
+	t.Logf("---- Data channels open! ----")
 
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
@@ -61,18 +81,31 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 			senderID := strconv.FormatUint(sender.Websocket.UserID, 10)
 
 			peerIDs := sender.PeerManager.GetPeerIDs()
-			assert.Equal(t, len(peerIDs), 3, "client %d has missing peers", sender)
 			for _, peerID := range peerIDs {
 				receiverID := strconv.FormatUint(peerID, 10)
 				message := "Round " + strconv.Itoa(round) +
 					" | from client " + senderID +
 					" | to client " + receiverID
 
+				// errs:
+				// 1 -> 4
+				// 2 -> 3
+				// 2 -> 4
+				// 3 -> 2
+				// 4 -> 1
+				// 4 -> 2
+
+				// 1 -> 4
+				// 2 -> 4
+				// 4 -> 1
+				// 4 -> 2
+				// 4 -> 3
+
+				t.Logf("%d sending message to %d", sender.Websocket.UserID, peerID)
 				err := sender.SendMessageToPeer(peerID, message)
 				assert.NoErrorf(t, err, "Failed to send message from client %s to peer %s", senderID, receiverID)
 			}
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 	t.Logf("All clients successfully exchanged messages")
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
+	ws "github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 type Peer struct {
@@ -22,22 +23,6 @@ type Peer struct {
 }
 
 type pmEvent any
-
-// type pmCloseAll struct{}
-// type pmCheckAllConnectedAndDisconnect struct {
-// 	resultCh chan error
-// }
-// type pmHandleICECandidate struct {
-// 	msg SignalingMessage
-// }
-// type pmCreateAndSendOffer struct {
-// 	peerID     uint64
-// 	responseCh chan SignalingMessage
-// }
-// type pmHandleOffer struct {
-// 	msg        SignalingMessage
-// 	responseCh chan SignalingMessage
-// }
 
 type pmGetPeerIDs struct {
 	resultCh chan []uint64
@@ -59,11 +44,11 @@ type pmSendJSONToPeer struct {
 }
 type pmHandleIncomingMsg struct {
 	msg        SignalingMessage
-	responseCh chan SignalingMessage
+	responseCh chan ws.Message
 }
 type pmRemovePeer struct {
 	peerID     uint64
-	responseCh chan SignalingMessage
+	responseCh chan ws.Message
 }
 
 type PeerManager struct {
@@ -77,6 +62,8 @@ type PeerManager struct {
 	iceCandidateBuffer    map[uint64][]webrtc.ICECandidateInit
 	pmEventCh             chan pmEvent
 	processingLoopStarted bool
+	msgOutCh              chan common.WebRTCMessage
+	PeerEventsCh          chan common.PeerEvent
 }
 
 type SignalingMessage struct {

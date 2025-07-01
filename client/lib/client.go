@@ -3,16 +3,24 @@ package client
 import (
 	"fmt"
 	"log"
+	"strconv"
 
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/webrtc"
-	"github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
+	ws "github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 type Client struct {
-	Websocket    *websocket.Client
+	Websocket    *ws.Client
+	MsgOutCh     chan common.WebRTCMessage
 	PeerManager  *webrtc.PeerManager
 	cmdChan      chan peerCommand
-	wsResponseCh chan webrtc.SignalingMessage
+	wsResponseCh chan ws.Message
+
+	// crazy stuff
+	createRoomRespCh   chan error
+	joinRoomRespCh     chan error
+	startSessionRespCh chan error
 }
 
 type peerCommand struct {
@@ -23,18 +31,21 @@ type peerCommand struct {
 
 func NewClient(wsEndpoint string) *Client {
 	client := &Client{
-		Websocket:    websocket.NewClient(wsEndpoint),
+		Websocket:    ws.NewClient(wsEndpoint),
 		cmdChan:      make(chan peerCommand),
-		wsResponseCh: make(chan webrtc.SignalingMessage),
+		wsResponseCh: make(chan ws.Message),
+		MsgOutCh:     make(chan common.WebRTCMessage),
 	}
 
 	// NOTE: this goroutine will be responsible for sending websocket messages.
 	//
 	// * Send websocket messages by sending the message through the channel
 	// * Do NOT send websocket messages anywhere outside this loop
+	//
+	// TODO: maybe we can also just send to the SendWSMsgCh directly
 	go func() {
 		for msg := range client.wsResponseCh {
-			err := client.Websocket.Send(websocket.Message{
+			convertedMsg := ws.Message{
 				Type:      msg.Type,
 				Sender:    msg.Sender,
 				Target:    msg.Target,
@@ -42,10 +53,8 @@ func NewClient(wsEndpoint string) *Client {
 				Candidate: msg.Candidate,
 				Text:      msg.Text,
 				Users:     msg.Users,
-			})
-			if err != nil {
-				log.Printf("[ERROR] failed to send websocket message: %v", err)
 			}
+			client.Websocket.SendWSMsgCh <- convertedMsg
 		}
 
 		log.Println("[INFO] closing WS send loop")
@@ -59,7 +68,7 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("authentication failed: %v", err)
 	}
 
-	c.PeerManager = webrtc.NewPeerManager(c.Websocket.UserID)
+	c.PeerManager = webrtc.NewPeerManager(c.Websocket.UserID, c.MsgOutCh)
 	if c.PeerManager == nil {
 		return fmt.Errorf("failed to initialize PeerManager")
 	}
@@ -67,49 +76,62 @@ func (c *Client) Connect() error {
 	if err := c.Websocket.Init(); err != nil {
 		return err
 	}
-	c.Websocket.Start()
-
-	c.Websocket.OnMessage = func(msg websocket.Message) {
-		signalingMsg := webrtc.SignalingMessage{
-			Type:      msg.Type,
-			Sender:    msg.Sender,
-			Target:    msg.Target,
-			SDP:       msg.SDP,
-			Candidate: msg.Candidate,
-			Text:      msg.Text,
-			Users:     msg.Users,
-		}
-		c.PeerManager.HandleIncomingMessage(signalingMsg, c.wsResponseCh)
-	}
+	c.startWSLoops()
 
 	return nil
 }
 
 func (c *Client) CreateRoom() error {
 	log.Println("[Client] Creating room (set as host)")
-	return c.Websocket.Create()
+
+	c.createRoomRespCh = make(chan error, 1)
+	defer func() {
+		c.createRoomRespCh = nil
+	}()
+
+	c.Websocket.SendWSMsgCh <- ws.Message{Type: common.MessageTypeCreateRoom}
+
+	err := <-c.createRoomRespCh
+
+	return err
 }
 
 func (c *Client) JoinRoom(roomID string) error {
-	return c.Websocket.JoinRoom(roomID)
+	c.joinRoomRespCh = make(chan error, 1)
+	defer func() {
+		c.joinRoomRespCh = nil
+	}()
+
+	roomIDUint64, parseErr := strconv.ParseUint(roomID, 10, 64)
+	if parseErr != nil {
+		return fmt.Errorf("invalid room ID: %v", parseErr)
+	}
+	c.Websocket.RoomID = roomIDUint64
+
+	c.Websocket.SendWSMsgCh <- ws.Message{Type: common.MessageTypeJoinRoom, RoomID: c.Websocket.RoomID}
+
+	joinRoomErr := <-c.joinRoomRespCh
+
+	return joinRoomErr
 }
 
 func (c *Client) StartSession() error {
-	return c.Websocket.StartSession()
+	c.startSessionRespCh = make(chan error, 1)
+	defer func() {
+		c.startSessionRespCh = nil
+	}()
+
+	msg := ws.Message{
+		Type: common.MessageTypeStartSession,
+	}
+	c.Websocket.SendWSMsgCh <- msg
+	err := <-c.startSessionRespCh
+
+	return err
 }
 
 func (c *Client) SendMessageToPeer(peerID uint64, data string) error {
 	return c.PeerManager.SendBytesToPeer(peerID, []byte(data))
-}
-
-func (c *Client) PopMessage() ([]byte, bool) {
-	// NOTE:
-	// to implement this, we must
-	// 1. initialize a [][]byte at startup; this will be the message storage
-	// 2. push the messages onto a [][]byte every time the client receives a new WebRTC message
-	// 3a. when the function is called, return the first one and true
-	// 3b. when the function is called and the array is empty, return empty and false
-	panic("TODO: implement this function")
 }
 
 func (c *Client) LeaveRoom(peerID uint64) {

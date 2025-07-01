@@ -9,9 +9,10 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
+	ws "github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
-func NewPeerManager(userID uint64) *PeerManager {
+func NewPeerManager(userID uint64, msgOutCh chan common.WebRTCMessage) *PeerManager {
 	fmt.Println("[DEBUG] NewPeerManager called for user:", userID)
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -27,6 +28,8 @@ func NewPeerManager(userID uint64) *PeerManager {
 		iceCandidateBuffer:    make(map[uint64][]webrtc.ICECandidateInit),
 		pmEventCh:             make(chan pmEvent),
 		processingLoopStarted: false,
+		msgOutCh:              msgOutCh,
+		PeerEventsCh:          make(chan common.PeerEvent),
 	}
 
 	pm.startProcessingEvents()
@@ -110,7 +113,7 @@ func (pm *PeerManager) handleIncomingMessageSwitch(event pmHandleIncomingMsg) {
 				if peerID == pm.userID || pm.peers[peerID] != nil {
 					continue
 				}
-				log.Printf("[WEBRTC SIGNALING] Initiating connection to peer %d\n", peerID)
+				log.Printf("[WEBRTC SIGNALING: %d] Initiating connection to peer %d\n", pm.userID, peerID)
 
 				pm.createAndSendOfferSwitch(peerID, event.responseCh)
 			}
@@ -177,7 +180,7 @@ func (pm *PeerManager) handleIncomingMessageSwitch(event pmHandleIncomingMsg) {
 	}
 }
 
-func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan SignalingMessage) {
+func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan ws.Message) {
 	log.Printf("[DEBUG] creating new peer connection for %d\n", peerID)
 	pc, err := webrtc.NewPeerConnection(pm.config)
 	if err != nil {
@@ -193,6 +196,7 @@ func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan S
 	}
 
 	dc.OnOpen(func() {
+		pm.PeerEventsCh <- common.PeerDataChOpened{PeerID: peerID}
 		log.Printf("[INFO] data channel opened for %d\n", peerID)
 	})
 
@@ -212,6 +216,10 @@ func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan S
 		log.Printf("Received raw data from %d: %v", peerID, msg.Data)
 		if msg.IsString {
 			log.Printf("As string: %s", string(msg.Data))
+		}
+		pm.msgOutCh <- common.WebRTCMessage{
+			From: peer.ID,
+			Data: msg.Data,
 		}
 	})
 
@@ -233,7 +241,7 @@ func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan S
 		}
 
 		init := c.ToJSON()
-		responseCh <- SignalingMessage{
+		responseCh <- ws.Message{
 			Type:      common.MessageTypeICECandidate,
 			Sender:    pm.userID,
 			Target:    peerID,
@@ -266,9 +274,9 @@ func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan S
 		log.Printf("[ERROR] failed to set local description for %d: %v\n", peerID, err)
 		return
 	}
-	log.Printf("[SIGNALING] Sending offer to %d", peerID)
+	log.Printf("[SIGNALING: %d] Sending offer to %d", pm.userID, peerID)
 
-	responseCh <- SignalingMessage{
+	responseCh <- ws.Message{
 		Type:   common.MessageTypeOffer,
 		Sender: pm.userID,
 		Target: peerID,
@@ -276,7 +284,7 @@ func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan S
 	}
 }
 
-func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan SignalingMessage) {
+func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan ws.Message) {
 	pc, err := webrtc.NewPeerConnection(pm.config)
 	if err != nil {
 		log.Printf("[ERROR] failed to create new peer connection while handling offer: %v", err)
@@ -299,7 +307,8 @@ func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan S
 		peer.DataChannel = dc
 
 		dc.OnOpen(func() {
-			log.Printf("[DATA] Channel opened with %d", msg.Sender)
+			pm.PeerEventsCh <- common.PeerDataChOpened{PeerID: peer.ID}
+			log.Printf("[DATA: %d] Channel opened with %d", pm.userID, msg.Sender)
 		})
 
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -307,6 +316,7 @@ func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan S
 			if msg.IsString {
 				log.Printf("As string: %s", string(msg.Data))
 			}
+			pm.msgOutCh <- common.WebRTCMessage{From: peer.ID, Data: msg.Data}
 		})
 	})
 
@@ -319,7 +329,7 @@ func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan S
 		if peer.remoteDescriptionSet {
 			log.Printf("[DEBUG] remote description set for %d, sending ICE candidates", peer.ID)
 
-			iceMsg := SignalingMessage{
+			iceMsg := ws.Message{
 				Type:      common.MessageTypeICECandidate,
 				Sender:    pm.userID,
 				Target:    msg.Sender,
@@ -374,7 +384,7 @@ func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan S
 		log.Printf("[ERROR] failed to set local description for %d: %v\n", msg.Sender, err)
 	}
 
-	responseCh <- SignalingMessage{
+	responseCh <- ws.Message{
 		Type:   common.MessageTypeAnswer,
 		Sender: pm.userID,
 		Target: msg.Sender,
@@ -382,7 +392,7 @@ func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan S
 	}
 }
 
-func (pm *PeerManager) handleAnswer(msg SignalingMessage, responseCh chan SignalingMessage) {
+func (pm *PeerManager) handleAnswer(msg SignalingMessage, responseCh chan ws.Message) {
 	peer, ok := pm.peers[msg.Sender]
 	if !ok {
 		log.Printf("[ERROR] failed to handle answer: peer %d not found", msg.Sender)
@@ -420,11 +430,11 @@ func (pm *PeerManager) handleICECandidateSwitch(msg SignalingMessage) error {
 	return nil
 }
 
-func (peer *Peer) onRemoteDescriptionSet(senderID uint64, responseCh chan SignalingMessage) {
+func (peer *Peer) onRemoteDescriptionSet(senderID uint64, responseCh chan ws.Message) {
 	peer.remoteDescriptionSet = true
 	log.Printf("[ICE] Remote description set for peer %d. Sending %d buffered candidates.", peer.ID, len(peer.bufferedICECandidates))
 	for _, c := range peer.bufferedICECandidates {
-		response := SignalingMessage{
+		response := ws.Message{
 			Type:      common.MessageTypeICECandidate,
 			Sender:    senderID,
 			Target:    peer.ID,

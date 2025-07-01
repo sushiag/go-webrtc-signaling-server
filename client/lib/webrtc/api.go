@@ -1,5 +1,7 @@
 package webrtc
 
+import ws "github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
+
 // NOTE: I just moved the public functions to this file for easier visibility
 
 func (pm *PeerManager) GetPeerIDs() []uint64 {
@@ -20,10 +22,10 @@ func (pm *PeerManager) SendJSONToPeer(peerID uint64, payload Payload) error {
 	return <-respCh
 }
 
-func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, responseCh chan SignalingMessage) {
+func (pm *PeerManager) HandleIncomingMessage(msg SignalingMessage, responseCh chan ws.Message) {
 	pm.pmEventCh <- pmHandleIncomingMsg{msg, responseCh}
 }
 
-func (pm *PeerManager) RemovePeer(peerID uint64, responseCh chan SignalingMessage) {
+func (pm *PeerManager) RemovePeer(peerID uint64, responseCh chan ws.Message) {
 	pm.pmEventCh <- pmRemovePeer{peerID, responseCh}
 }

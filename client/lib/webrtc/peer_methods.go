@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
+	ws "github.com/sushiag/go-webrtc-signaling-server/client/lib/websocket"
 )
 
 func (pm *PeerManager) sendBytesToPeerSwitch(peerID uint64, data []byte) error {
@@ -34,7 +35,7 @@ func (pm *PeerManager) sendJSONToPeerSwitch(peerID uint64, payload Payload) erro
 	return pm.sendBytesToPeerSwitch(peerID, data)
 }
 
-func (pm *PeerManager) removePeerSwitch(peerID uint64, responseCh chan SignalingMessage) {
+func (pm *PeerManager) removePeerSwitch(peerID uint64, responseCh chan ws.Message) {
 	peer, exists := pm.peers[peerID]
 	if !exists {
 		log.Printf("[REMOVE ERROR] Peer %d not found for removal\n", peerID)
@@ -54,7 +55,7 @@ func (pm *PeerManager) removePeerSwitch(peerID uint64, responseCh chan Signaling
 			pm.hostID = newHostID
 			log.Printf("[HOST] Host reassigned to %d\n", pm.hostID)
 
-			hostChangeMsg := SignalingMessage{
+			hostChangeMsg := ws.Message{
 				Type:   common.MessageTypeHostChanged,
 				Sender: pm.userID,
 				Target: 0,

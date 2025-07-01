@@ -45,7 +45,7 @@ func (c *Connection) readLoop(inboundMessages chan<- Message) {
 func (c *Connection) writeLoop() {
 	for msg := range c.Outgoing {
 		if err := c.Conn.WriteJSON(msg); err != nil {
-			log.Printf("[WS] Write error to %d: %v", c.UserID, err)
+			log.Printf("[WS Server] Write error to %d: %v", c.UserID, err)
 			c.Disconnected <- c.UserID
 			return
 		}

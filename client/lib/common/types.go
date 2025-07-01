@@ -4,6 +4,17 @@ import (
 	"encoding/json"
 )
 
+type WebRTCMessage struct {
+	From uint64
+	Data []byte
+}
+
+type PeerEvent any
+
+type PeerDataChOpened struct {
+	PeerID uint64
+}
+
 type MessageType int
 
 const (
