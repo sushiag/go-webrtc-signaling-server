@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 type WebRTCMessage struct {
@@ -22,6 +23,7 @@ const (
 	MessageTypeAnswer
 	MessageTypeICECandidate
 	MessageTypePeerJoined
+	MessageTypePeerLeft
 	MessageTypeDisconnect
 	MessageTypeSendMessage
 	MessageTypePeerList
@@ -34,85 +36,114 @@ const (
 	MessageTypeRoomJoined
 )
 
-func (mt MessageType) String() string {
+func (mt MessageType) ToString() (string, error) {
+	var convertedType string
+	var err error
+
 	switch mt {
 	case MessageTypeOffer:
-		return "offer"
+		convertedType = "offer"
 	case MessageTypeAnswer:
-		return "answer"
+		convertedType = "answer"
 	case MessageTypeICECandidate:
-		return "ice-candidate"
+		convertedType = "ice-candidate"
 	case MessageTypePeerJoined:
-		return "peer-joined"
+		convertedType = "peer-joined"
+	case MessageTypePeerLeft:
+		convertedType = "peer-left"
 	case MessageTypeDisconnect:
-		return "disconnect"
+		convertedType = "disconnect"
 	case MessageTypeSendMessage:
-		return "send-message"
+		convertedType = "send-message"
 	case MessageTypePeerList:
-		return "peer-list"
+		convertedType = "peer-list"
 	case MessageTypeHostChanged:
-		return "host-changed"
+		convertedType = "host-changed"
 	case MessageTypeStartSession:
-		return "start-session"
+		convertedType = "start-session"
 	case MessageTypeRoomCreated:
-		return "room-created"
+		convertedType = "room-created"
 	case MessageTypeCreateRoom:
-		return "create-room"
+		convertedType = "create-room"
 	case MessageTypeJoinRoom:
-		return "join-room"
+		convertedType = "join-room"
 	case MessageTypePeerListReq:
-		return "peer-list-req"
+		convertedType = "peer-list-req"
 	case MessageTypeRoomJoined:
-		return "room-joined"
+		convertedType = "room-joined"
 	default:
-		return "unknown"
+		err = fmt.Errorf("unknown message type: (%d)", mt)
 	}
-}
 
-func (mt *MessageType) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-	*mt = ParseMessageType(s)
-	return nil
+	return convertedType, err
 }
 
 func (mt MessageType) MarshalJSON() ([]byte, error) {
-	return json.Marshal(mt.String())
+	stringMt, err := mt.ToString()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(stringMt)
 }
 
-func ParseMessageType(s string) MessageType {
+// TODO: We're overloading the normal UnmarshalJSON function here but once the server
+// also starts using ints as a message type, this will no longer be necessary
+func (mt *MessageType) UnmarshalJSON(b []byte) error {
+	var parsed string
+	var err error
+
+	if err = json.Unmarshal(b, &parsed); err != nil {
+		return err
+	}
+
+	var converted MessageType
+	converted, err = ParseMessageType(parsed)
+	if err != nil {
+		return err
+	}
+
+	*mt = converted
+	return err
+}
+
+func ParseMessageType(s string) (MessageType, error) {
+	var parsedType MessageType
+	var err error
 	switch s {
 	case "offer":
-		return MessageTypeOffer
+		parsedType = MessageTypeOffer
 	case "answer":
-		return MessageTypeAnswer
+		parsedType = MessageTypeAnswer
 	case "ice-candidate":
-		return MessageTypeICECandidate
+		parsedType = MessageTypeICECandidate
 	case "peer-joined":
-		return MessageTypePeerJoined
+		parsedType = MessageTypePeerJoined
+	case "peer-left":
+		parsedType = MessageTypePeerLeft
 	case "disconnect":
-		return MessageTypeDisconnect
+		parsedType = MessageTypeDisconnect
 	case "send-message":
-		return MessageTypeSendMessage
+		parsedType = MessageTypeSendMessage
 	case "peer-list":
-		return MessageTypePeerList
+		parsedType = MessageTypePeerList
 	case "host-changed":
-		return MessageTypeHostChanged
+		parsedType = MessageTypeHostChanged
 	case "start-session":
-		return MessageTypeStartSession
+		parsedType = MessageTypeStartSession
 	case "room-created":
-		return MessageTypeRoomCreated
+		parsedType = MessageTypeRoomCreated
 	case "create-room":
-		return MessageTypeCreateRoom
+		parsedType = MessageTypeCreateRoom
 	case "join-room":
-		return MessageTypeJoinRoom
+		parsedType = MessageTypeJoinRoom
 	case "peer-list-req":
-		return MessageTypePeerListReq
+		parsedType = MessageTypePeerListReq
 	case "room-joined":
-		return MessageTypeRoomJoined
+		parsedType = MessageTypeRoomJoined
 	default:
-		return -1
+		err = fmt.Errorf("invalid message type: '%s'", s)
 	}
+
+	return parsedType, err
 }

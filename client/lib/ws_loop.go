@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"log"
 
 	gws "github.com/gorilla/websocket"
@@ -15,9 +16,9 @@ func (c *Client) startWSLoops() {
 
 	// Listen Loop
 	go func() {
-		log.Println("[DEBUG] starting WS listen loop")
+		log.Printf("[DEBUG: %d] starting WS listen loop", c.Websocket.UserID)
 		defer func() {
-			log.Println("[DEBUG] closing WS listen loop")
+			log.Printf("[DEBUG: %d] closing WS listen loop", c.Websocket.UserID)
 			c.Websocket.Conn.Close()
 		}()
 
@@ -25,8 +26,8 @@ func (c *Client) startWSLoops() {
 			var msg ws.Message
 			err := c.Websocket.Conn.ReadJSON(&msg)
 			if err != nil {
-				log.Printf("[ERROR: %d]: failed to read JSON message from WS conn: %v\n", c.Websocket.UserID, err)
-				return
+				log.Printf("[ERROR: %d]: failed to read JSON message from WS conn: %v", c.Websocket.UserID, err)
+				continue
 			}
 
 			c.handleMessage(msg)
@@ -46,8 +47,8 @@ func (c *Client) startWSLoops() {
 			case msg := <-c.Websocket.SendWSMsgCh:
 				{
 					if c.Websocket.Conn == nil || c.Websocket.IsClosed {
-						log.Printf("[CLIENT SIGNALING] Cannot send, connection is closed.")
-						continue
+						log.Printf("[CLIENT SIGNALING] cannot WS message send, connection is closed")
+						break
 					}
 
 					if msg.RoomID == 0 {
@@ -58,18 +59,18 @@ func (c *Client) startWSLoops() {
 						msg.Sender = c.Websocket.UserID
 					}
 
-					log.Printf("[SEND LOOP: %d] writing to WS conn", c.Websocket.UserID)
+					log.Printf("[SEND LOOP: %d] writing message type `%d` to WS conn; target: %d", c.Websocket.UserID, msg.Type, msg.Target)
 					if err := c.Websocket.Conn.WriteJSON(msg); err != nil {
-						log.Printf("[CLIENT SIGNALING] Failed to send '%s': %v", msg.Type.String(), err)
+						log.Printf("[CLIENT SIGNALING] Failed to send message type '%d': %v", msg.Type, err)
 					}
 				}
 
 			case err := <-errCh:
 				{
 					if closeErr, ok := err.(*gws.CloseError); ok {
-						log.Printf("[CLIENT SIGNALING] WebSocket closed: %s", closeErr.Text)
+						log.Printf("[SIGNALING: %d] web socket closed: %s", c.Websocket.UserID, closeErr.Text)
 					} else {
-						log.Println("[CLIENT SIGNALING] Read error:", err)
+						log.Printf("[SIGNALING: %d] read error: %s", c.Websocket.UserID, err)
 					}
 					c.Close()
 					return
@@ -119,7 +120,13 @@ func (c *Client) handleMessage(msg ws.Message) {
 			}
 			c.PeerManager.HandleIncomingMessage(signalingMsg, c.Websocket.SendWSMsgCh)
 
-			if !c.Websocket.IsClosed {
+			// TODO: this is a bit messy and needs some re-organization
+			// ... why are we closing the WS connection?
+			if c.Websocket.IsClosed {
+				// if there isn't an existing connection, starting a session is fine
+				c.startSessionRespCh <- nil
+			} else {
+				// otherwise, we close the current connection
 				c.Websocket.IsClosed = true
 				close(c.Websocket.DoneCh)
 				if c.Websocket.Conn != nil {
@@ -127,10 +134,10 @@ func (c *Client) handleMessage(msg ws.Message) {
 					c.Websocket.Conn = nil
 				}
 				log.Println("[CLIENT SIGNALING] Client disconnected from signaling server.")
+				c.startSessionRespCh <- fmt.Errorf("already has an existing connection")
 			}
 
 			c.startSessionRespCh <- nil
-			return
 		}
 
 	case common.MessageTypeSendMessage:
@@ -167,6 +174,7 @@ func (c *Client) handleMessage(msg ws.Message) {
 		}
 
 	case common.MessageTypePeerJoined,
+		common.MessageTypePeerLeft,
 		common.MessageTypeOffer,
 		common.MessageTypeAnswer,
 		common.MessageTypeICECandidate,
@@ -187,7 +195,7 @@ func (c *Client) handleMessage(msg ws.Message) {
 
 	default:
 		{
-			log.Printf("[CLIENT SIGNALING] Unhandled message type: %s", msg.Type)
+			log.Printf("[CLIENT SIGNALING] Unhandled message type `%d`: %v", msg.Type, msg)
 		}
 	}
 }

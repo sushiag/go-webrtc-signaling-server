@@ -34,7 +34,7 @@ func (c *Client) SendSignalingMessage(targetID uint64, msgType common.MessageTyp
 	case common.MessageTypeSendMessage:
 		msg.Content = sdpOrCandidate
 	default:
-		return fmt.Errorf("unsupported message type: %s", msgType.String())
+		return fmt.Errorf("unsupported message type: %d", msgType)
 	}
 
 	c.SendWSMsgCh <- msg

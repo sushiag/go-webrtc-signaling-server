@@ -95,7 +95,7 @@ func (pm *PeerManager) startProcessingEvents() {
 }
 
 func (pm *PeerManager) handleIncomingMessageSwitch(event pmHandleIncomingMsg) {
-	log.Printf("[DEBUG] Dispatching signaling message: type=%s from=%d to=%d\n", event.msg.Type, event.msg.Sender, event.msg.Target)
+	log.Printf("[DEBUG] Dispatching signaling message: type=%d from=%d to=%d\n", event.msg.Type, event.msg.Sender, event.msg.Target)
 
 	if event.msg.Type < 0 {
 		log.Println("[ERROR] Invalid message type; ignoring.")
@@ -173,22 +173,33 @@ func (pm *PeerManager) handleIncomingMessageSwitch(event pmHandleIncomingMsg) {
 			pm.sendBytesToPeerSwitch(event.msg.Target, []byte(event.msg.Text))
 		}
 
+	case common.MessageTypePeerLeft:
+		{
+			peer, hasPeer := pm.peers[event.msg.Sender]
+			if !hasPeer {
+				log.Printf("[WARN: %d] received a peer left message for an unknown peer: %d", pm.userID, event.msg.Sender)
+			}
+
+			delete(pm.peers, peer.ID)
+			log.Printf("[INFO: %d] removed %d from the peer list", pm.userID, event.msg.Sender)
+		}
+
 	default:
 		{
-			log.Printf("[WEBRTC SIGNALING] Unknown message type: %s\n", event.msg.Type)
+			log.Printf("[WEBRTC SIGNALING] Unknown message type: %d\n", event.msg.Type)
 		}
 	}
 }
 
 func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan ws.Message) {
-	log.Printf("[DEBUG] creating new peer connection for %d\n", peerID)
+	log.Printf("[DEBUG: %d] creating new peer connection for %d\n", pm.userID, peerID)
 	pc, err := webrtc.NewPeerConnection(pm.config)
 	if err != nil {
 		log.Printf("[ERROR] failed to create new peer connection for %d: %v\n", peerID, err)
 		return
 	}
 
-	log.Printf("[DEBUG] creating new data channel for %d\n", peerID)
+	log.Printf("[DEBUG: %d] creating new data channel for %d\n", pm.userID, peerID)
 	dc, err := pc.CreateDataChannel("data", nil)
 	if err != nil {
 		log.Printf("[ERROR] failed to create new peer data channel for %d: %v\n", peerID, err)
@@ -262,14 +273,14 @@ func (pm *PeerManager) createAndSendOfferSwitch(peerID uint64, responseCh chan w
 		}
 	})
 
-	log.Printf("[DEBUG] creating offer for %d", peerID)
+	log.Printf("[DEBUG: %d] creating offer for %d", pm.userID, peerID)
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {
 		log.Printf("[ERROR] failed to create new peer offer for %d: %v\n", peerID, err)
 		return
 	}
 
-	log.Printf("[DEBUG] setting local description for %d", peerID)
+	log.Printf("[DEBUG: %d] setting local description for %d", pm.userID, peerID)
 	if err := pc.SetLocalDescription(offer); err != nil {
 		log.Printf("[ERROR] failed to set local description for %d: %v\n", peerID, err)
 		return

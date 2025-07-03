@@ -139,12 +139,9 @@ func (c *Client) LeaveRoom(peerID uint64) {
 }
 
 func (c *Client) Close() {
-	if c.Websocket != nil {
-		c.Websocket.Close()
-	}
-	if c.cmdChan != nil {
-		close(c.cmdChan)
-	}
+	// TODO: we need to re-implement this to handle closing properly!
+	// we shouldn't be calling Conn.Close() in here because Conn might be in use in a
+	// separate thread
 }
 
 func (c *Client) SetServerURL(url string) {
