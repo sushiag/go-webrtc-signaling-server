@@ -151,7 +151,3 @@ func (c *Client) SetServerURL(url string) {
 func (c *Client) SetApiKey(key string) {
 	c.Websocket.SetApiKey(key)
 }
-
-func (c *Client) RetrySignaling(maxRetries int) {
-	c.Websocket.ConnectWithRetry(maxRetries)
-}

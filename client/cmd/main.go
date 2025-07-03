@@ -12,7 +12,6 @@ func main() {
 	os.Setenv("API_KEY", "valid-api-key-1")
 
 	ctrl := client.NewClient("127.0.0.1:50299")
-	defer ctrl.Close()
 
 	if err := ctrl.Connect(); err != nil {
 		log.Fatalf("Failed to connect: %v", err)

@@ -1,9 +1,11 @@
 package client
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 
+	"github.com/gorilla/websocket"
 	gws "github.com/gorilla/websocket"
 
 	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
@@ -23,14 +25,37 @@ func (c *Client) startWSLoops() {
 		}()
 
 		for {
-			var msg ws.Message
-			err := c.Websocket.Conn.ReadJSON(&msg)
+			// var msg ws.Message
+			msgType, data, err := c.Websocket.Conn.ReadMessage()
 			if err != nil {
-				log.Printf("[ERROR: %d]: failed to read JSON message from WS conn: %v", c.Websocket.UserID, err)
-				continue
+				log.Printf("[ERROR: %d]: failed to read WS message from server: %v", c.Websocket.UserID, err)
 			}
 
-			c.handleMessage(msg)
+			switch msgType {
+			case websocket.BinaryMessage:
+				{
+					log.Printf("[WARN: %d]: ignored binary message", c.Websocket.UserID)
+				}
+			case websocket.TextMessage:
+				{
+					var jsonMsg ws.Message
+					err := json.Unmarshal(data, &jsonMsg)
+					if err != nil {
+						log.Printf("[ERROR: %d]: failed to unmarshal JSON WS message from server: %v", c.Websocket.UserID, err)
+						continue
+					}
+					log.Printf("[INFO: %d]: handling text message from server with type: %d", c.Websocket.UserID, jsonMsg.Type)
+					c.handleMessage(jsonMsg)
+				}
+			}
+
+			// err := c.Websocket.Conn.ReadJSON(&msg)
+			// if err != nil {
+			// 	log.Printf("[ERROR: %d]: failed to read JSON message from WS conn: %v", c.Websocket.UserID, err)
+			// 	continue
+			// }
+			//
+			// c.handleMessage(msg)
 		}
 
 	}()
@@ -59,7 +84,15 @@ func (c *Client) startWSLoops() {
 						msg.Sender = c.Websocket.UserID
 					}
 
-					log.Printf("[SEND LOOP: %d] writing message type `%d` to WS conn; target: %d", c.Websocket.UserID, msg.Type, msg.Target)
+					// NOTE: debug logging, should be removed later
+					log.Printf("[SEND LOOP: %d] writing message type to WS conn for %d, %v", c.Websocket.UserID, msg.Type, msg.Target)
+					b, err := json.Marshal(msg)
+					if err != nil {
+						log.Printf("[SEND LOOP: %d] failed to marshal WS message: %v", c.Websocket.UserID, err)
+					} else {
+						log.Printf("[SEND LOOP: %d] outgoing JSON: %s", c.Websocket.UserID, b)
+					}
+
 					if err := c.Websocket.Conn.WriteJSON(msg); err != nil {
 						log.Printf("[CLIENT SIGNALING] Failed to send message type '%d': %v", msg.Type, err)
 					}
@@ -72,7 +105,6 @@ func (c *Client) startWSLoops() {
 					} else {
 						log.Printf("[SIGNALING: %d] read error: %s", c.Websocket.UserID, err)
 					}
-					c.Close()
 					return
 				}
 
@@ -86,8 +118,6 @@ func (c *Client) startWSLoops() {
 }
 
 func (c *Client) handleMessage(msg ws.Message) {
-	log.Printf("[HANDLE MSG: %d]: handling %v msg", c.Websocket.UserID, msg.Type)
-
 	switch msg.Type {
 	case common.MessageTypeRoomCreated:
 		{

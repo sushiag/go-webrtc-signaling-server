@@ -374,10 +374,10 @@ func (pm *PeerManager) handleOfferSwitch(msg SignalingMessage, responseCh chan w
 	pm.peers[msg.Sender] = peer
 
 	if buffered, ok := pm.iceCandidateBuffer[msg.Sender]; ok {
-		log.Printf("[HANDLE OFFER] Flushing %d buffered candidates for peer %d", len(buffered), msg.Sender)
+		log.Printf("[HANDLE OFFER: %d] Flushing %d buffered candidates for peer %d", len(buffered), pm.userID, msg.Sender)
 		for _, c := range buffered {
 			if err := peer.Connection.AddICECandidate(c); err != nil {
-				log.Printf("[HANDLE OFFER] Failed to add buffered candidate to peer %d: %v", msg.Sender, err)
+				log.Printf("[HANDLE OFFER: %d] Failed to add buffered candidate to peer %d: %v", pm.userID, msg.Sender, err)
 			}
 		}
 		delete(pm.iceCandidateBuffer, msg.Sender)

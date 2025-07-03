@@ -1,6 +1,8 @@
 package websocket
 
-import "github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
+import (
+	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
+)
 
 type Payload struct {
 	DataType string `json:"data_type"`

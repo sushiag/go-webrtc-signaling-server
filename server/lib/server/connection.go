@@ -27,18 +27,28 @@ func (c *Connection) readLoop(inboundMessages chan<- Message) {
 		log.Printf("[WS] User %d disconnected (read)", c.UserID)
 	}()
 	for {
-		_, data, err := c.Conn.ReadMessage()
+		msgType, data, err := c.Conn.ReadMessage()
 		if err != nil {
 			log.Printf("[WS] Read error from user %d: %v", c.UserID, err)
 			return
 		}
-		var msg Message
-		if err := json.Unmarshal(data, &msg); err != nil {
-			log.Printf("[WS] failed to unmarshal WS message from %d: %v", c.UserID, err)
-			continue
+
+		switch msgType {
+		case websocket.BinaryMessage:
+			{
+				log.Printf("[WS] ignoring binary message from %d", c.UserID)
+			}
+		case websocket.TextMessage:
+			{
+				var msg Message
+				if err := json.Unmarshal(data, &msg); err != nil {
+					log.Printf("[WS] failed to unmarshal WS message from %d: %v", c.UserID, err)
+					continue
+				}
+				msg.Sender = c.UserID
+				inboundMessages <- msg
+			}
 		}
-		msg.Sender = c.UserID
-		inboundMessages <- msg
 	}
 }
 
