@@ -34,7 +34,7 @@ func (c *Connection) readLoop(inboundMessages chan<- Message) {
 		}
 		var msg Message
 		if err := json.Unmarshal(data, &msg); err != nil {
-			log.Printf("[WS] Bad message from %d: %v", c.UserID, err)
+			log.Printf("[WS] failed to unmarshal WS message from %d: %v", c.UserID, err)
 			continue
 		}
 		msg.Sender = c.UserID

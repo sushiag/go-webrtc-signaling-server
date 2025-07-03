@@ -27,15 +27,35 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 	case TypeOffer, TypeAnswer, TypeICE:
 		room := wsm.Rooms[msg.RoomID]
 		if room == nil {
-			log.Printf("[WS WARNING] %s from %d ignored: Room %d does not exist", msg.Type, msg.Sender, msg.RoomID)
+			// TODO: remove this expensive logging eventually
+			rooms := make([]uint64, len(room.Users))
+			for i, room := range wsm.Rooms {
+				rooms[i] = room.ID
+			}
+
+			log.Printf("[WS WARNING] %s from %d ignored: Room %d does not exist; current rooms: %v", msg.Type, msg.Sender, msg.RoomID, rooms)
 			return
 		}
+
 		if _, senderOk := room.Users[msg.Sender]; !senderOk {
-			log.Printf("[WS WARNING] %s from %d ignored: Sender not in room %d", msg.Type, msg.Sender, msg.RoomID)
+			// TODO: remove this expensive logging eventually
+			usersInRoom := make([]uint64, len(room.Users))
+			for i, user := range room.Users {
+				usersInRoom[i] = user.UserID
+			}
+
+			log.Printf("[WS WARNING] %s from %d ignored: Sender not in room %d; current users in room: %v", msg.Type, msg.Sender, msg.RoomID, usersInRoom)
 			return
 		}
+
 		if _, targetOk := room.Users[msg.Target]; !targetOk {
-			log.Printf("[WS WARNING] %s from %d ignored: Target %d not in room %d", msg.Type, msg.Sender, msg.Target, msg.RoomID)
+			// TODO: remove this expensive logging eventually
+			usersInRoom := make([]uint64, len(room.Users))
+			for i, user := range room.Users {
+				usersInRoom[i] = user.UserID
+			}
+
+			log.Printf("[WS WARNING] %s from %d ignored: Target %d not in room %d; current users in room: %v", msg.Type, msg.Sender, msg.Target, msg.RoomID, usersInRoom)
 			return
 		}
 

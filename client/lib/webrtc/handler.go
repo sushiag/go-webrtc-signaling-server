@@ -177,7 +177,12 @@ func (pm *PeerManager) handleIncomingMessageSwitch(event pmHandleIncomingMsg) {
 		{
 			peer, hasPeer := pm.peers[event.msg.Sender]
 			if !hasPeer {
-				log.Printf("[WARN: %d] received a peer left message for an unknown peer: %d", pm.userID, event.msg.Sender)
+				currentPeers := make([]uint64, len(pm.peers))
+				for i, peer := range pm.peers {
+					currentPeers[i] = peer.ID
+				}
+
+				log.Printf("[WARN: %d] received a peer left message for an unknown peer: %d; current peers: %v", pm.userID, event.msg.Sender, currentPeers)
 			}
 
 			delete(pm.peers, peer.ID)

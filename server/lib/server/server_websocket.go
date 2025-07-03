@@ -18,6 +18,7 @@ const (
 	TypeDisconnect
 	TypeText
 	TypePeerJoined
+	TypePeerLeft
 	TypeRoomCreated
 	TypePeerList
 	TypePeerReady
@@ -26,7 +27,6 @@ const (
 	TypePeerListRequest
 	TypeHostChanged
 	TypeSendMessage
-	TypePeerLeft
 )
 
 type Message struct {

@@ -52,6 +52,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	// - clientB only connects to peer 1
 	// - clientC only connects to peer 1 & 2
 	// - clientD only connects to peer 1, 2, & 3
+	// thus, the mesh isn't complete
 	readyDataChannels := 0
 	totalPeers := 4
 	totalDataChannels := (totalPeers - 1) * totalPeers
