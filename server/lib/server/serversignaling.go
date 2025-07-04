@@ -8,29 +8,32 @@ import (
 
 func (wsm *WebSocketManager) handleMessage(msg Message) {
 	switch msg.Type {
-	case TypeCreateRoom:
+	case MessageTypeCreateRoom:
 		log.Printf("[WS] User %d requested to create a room", msg.Sender)
-		roomID := wsm.CreateRoom(msg.Sender)
+		roomID := wsm.createRoom(msg.Sender)
 		resp := Message{
-			Type:   TypeRoomCreated,
+			Type:   MessageTypeRoomCreated,
 			RoomID: roomID,
 			Sender: msg.Sender,
 		}
+
 		if conn, ok := wsm.Connections[msg.Sender]; ok {
 			_ = wsm.SafeWriteJSON(conn, resp)
 		}
 
-	case TypeJoin:
+	case MessageTypeJoinRoom:
 		log.Printf("[User %d] requested to join room: %d", msg.Sender, msg.RoomID)
-		wsm.AddUserToRoom(msg.RoomID, msg.Sender)
+		wsm.addUserToRoom(msg.RoomID, msg.Sender)
 
-	case TypeOffer, TypeAnswer, TypeICE:
+	case MessageTypeOffer, MessageTypeAnswer, MessageTypeICECandidate:
 		room := wsm.Rooms[msg.RoomID]
 		if room == nil {
 			// TODO: remove this expensive logging eventually
-			rooms := make([]uint64, len(room.Users))
-			for i, room := range wsm.Rooms {
-				rooms[i] = room.ID
+			rooms := make([]uint64, len(wsm.Rooms))
+			idx := 0
+			for _, room := range wsm.Rooms {
+				rooms[idx] = room.ID
+				idx += 1
 			}
 
 			log.Printf("[WS WARNING] %s from %d ignored: Room %d does not exist; current rooms: %v", msg.Type, msg.Sender, msg.RoomID, rooms)
@@ -62,25 +65,27 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 		log.Printf("[WS] Forwarding %s from %d to %d in room %d", msg.Type, msg.Sender, msg.Target, msg.RoomID)
 		wsm.forwardOrBuffer(msg.Sender, msg)
 
-	case TypePeerJoined:
+	case MessageTypePeerJoined:
 		log.Printf("[WS] User %d joined room: %d", msg.Sender, msg.RoomID)
 
-	case TypePeerListRequest:
+	case MessageTypePeerListReq:
 		log.Printf("[WS] User %d requested peer list for room %d", msg.Sender, msg.RoomID)
 		wsm.handlePeerListRequest(msg)
 
-	case TypeStart:
-		log.Printf("[WS] Received 'start' from user %d in room %d", msg.Sender, msg.RoomID)
-		wsm.handleStart(msg)
+	// NOTE: i think this is the same as MessageTypeStartSession
+	// case TypeStart:
+	// 	log.Printf("[WS] Received 'start' from user %d in room %d", msg.Sender, msg.RoomID)
+	// 	wsm.handleStart(msg)
 
-	case TypeDisconnect:
+	case MessageTypeDisconnect:
 		log.Printf("[WS] Disconnect request from user %d", msg.Sender)
 		wsm.disconnectChan <- msg.Sender
 
-	case TypeText:
-		log.Printf("[WS] Text from %d: %s", msg.Sender, msg.Content)
+	// NOTE: unused
+	// case TypeText:
+	// 	log.Printf("[WS] Text from %d: %s", msg.Sender, msg.Content)
 
-	case TypeStartP2P:
+	case MessageTypeStartSession:
 		log.Printf("[WS] Received start-session from peer %d in room %d", msg.Sender, msg.RoomID)
 		room, exists := wsm.Rooms[msg.RoomID]
 		if !exists {
@@ -105,7 +110,7 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 		delete(wsm.Rooms, msg.RoomID)
 		log.Printf("[WS] Room %d cleaned up after start-session", msg.RoomID)
 
-	case TypeHostChanged:
+	case MessageTypeHostChanged:
 		log.Printf("[WS] Host changed notification from user %d in room %d", msg.Sender, msg.RoomID)
 		room, exists := wsm.Rooms[msg.RoomID]
 		if exists {
@@ -117,11 +122,36 @@ func (wsm *WebSocketManager) handleMessage(msg Message) {
 
 		}
 
-	case TypeSendMessage:
+	case MessageTypeSendMessage:
 		log.Printf("[WS] Sending message from user %d to %d: %s", msg.Sender, msg.Target, msg.Content)
 		wsm.forwardOrBuffer(msg.Sender, msg)
 
 	default:
 		log.Printf("[WS] Unknown message type: %s", msg.Type)
 	}
+}
+
+func (wsm *WebSocketManager) handleNewConnection(conn *Connection) {
+	log.Printf("[WS] User %d connected", conn.UserID)
+	conn.Disconnected = wsm.disconnectChan
+
+	conn.Conn.SetPongHandler(func(string) error {
+		return nil
+	})
+
+	go conn.readLoop(wsm.messageChan)
+	go conn.writeLoop()
+	log.Printf("[WS] WS read and write loop for user %d started", conn.UserID)
+
+	wsm.Connections[conn.UserID] = conn
+
+	// we tell the user their user ID here
+	conn.Outgoing <- Message{
+		Type:   MessageTypeSetUserID,
+		UserID: conn.UserID,
+	}
+
+	// NOTE: idk what this is for but im keeping it as a comment just in case it's
+	// important
+	// wsm.flushBufferedMessages(userID)
 }

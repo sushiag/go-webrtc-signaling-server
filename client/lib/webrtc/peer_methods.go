@@ -57,7 +57,7 @@ func (pm *PeerManager) removePeerSwitch(peerID uint64, responseCh chan ws.Messag
 
 			hostChangeMsg := ws.Message{
 				Type:   common.MessageTypeHostChanged,
-				Sender: pm.userID,
+				Sender: pm.UserID,
 				Target: 0,
 				Users:  pm.getPeerIDsSwitch(),
 			}

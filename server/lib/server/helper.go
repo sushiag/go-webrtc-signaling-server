@@ -2,11 +2,11 @@ package server
 
 import (
 	"log"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
 
+// TODO: currently unused... is this the same as start session?
 func (wsm *WebSocketManager) handleStart(msg Message) {
 	roomID := msg.RoomID
 
@@ -26,42 +26,57 @@ func (wsm *WebSocketManager) handleStart(msg Message) {
 
 	delete(wsm.Rooms, roomID)
 }
-func (wsm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
+
+func (wsm *WebSocketManager) addUserToRoom(roomID uint64, joiningUserID uint64) {
+	log.Printf("[DEBUG] adding user %d to room %d", joiningUserID, roomID)
+
 	room, exists := wsm.Rooms[roomID]
 	if !exists {
-		room = &Room{
-			ID:       roomID,
-			Users:    make(map[uint64]*Connection),
-			ReadyMap: make(map[uint64]bool),
-			HostID:   userID, // added to solve the problem with  host not being track
-		}
-		wsm.Rooms[roomID] = room
-	}
-
-	if _, alreadyJoined := room.Users[userID]; alreadyJoined {
-		log.Printf("[WS] User %d is already in room %d, skipping join", userID, roomID)
+		log.Printf("[ERROR] user %d tried to join non-existent room %d, skipping join", joiningUserID, roomID)
 		return
 	}
 
-	room.Users[userID] = wsm.Connections[userID]
+	if _, alreadyJoined := room.Users[joiningUserID]; alreadyJoined {
+		log.Printf("[WS] User %d is already in room %d, skipping join", joiningUserID, roomID)
+		return
+	}
+
+	room.Users[joiningUserID] = wsm.Connections[joiningUserID]
 	var peers []uint64
 	for uid := range room.Users {
-		if uid != userID {
+		if uid != joiningUserID {
 			peers = append(peers, uid)
 		}
 	}
 
-	// Notify the new user of current peers
-	if conn, ok := wsm.Connections[userID]; ok {
+	// Notify the new user the room they joined
+	if conn, ok := wsm.Connections[joiningUserID]; ok {
 		_ = wsm.SafeWriteJSON(conn, Message{
-			Type:   TypePeerList,
+			Type:   MessageTypeRoomJoined,
 			RoomID: roomID,
-			Users:  peers,
-			Sender: userID,
 		})
 	}
 
-	log.Printf("[WS] User %d joined room %d", userID, roomID)
+	// Then notify everyone else of the new peer that joined
+	for _, user := range room.Users {
+		if user.UserID == joiningUserID {
+			continue
+		}
+
+		conn, exists := wsm.Connections[user.UserID]
+		if !exists {
+			log.Printf("[ERROR] unknown user (%d) is in room %d", conn.UserID, room.ID)
+		}
+
+		log.Printf("[DEBUG] notifying user %d that %d joined the room", conn.UserID, joiningUserID)
+
+		_ = wsm.SafeWriteJSON(conn, Message{
+			Type:   MessageTypePeerJoined,
+			UserID: joiningUserID,
+		})
+	}
+
+	log.Printf("[WS] User %d joined room %d", joiningUserID, roomID)
 }
 
 func (wsm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
@@ -130,7 +145,7 @@ func (wsm *WebSocketManager) handlePeerListRequest(msg Message) {
 
 	if conn, ok := wsm.Connections[userID]; ok {
 		_ = wsm.SafeWriteJSON(conn, Message{
-			Type:   TypePeerList,
+			Type:   MessageTypePeerList,
 			RoomID: roomID,
 			Users:  peerList,
 			Sender: userID,
@@ -154,7 +169,7 @@ func (wsm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool
 	return true
 }
 
-func (wsm *WebSocketManager) CreateRoom(hostID uint64) uint64 {
+func (wsm *WebSocketManager) createRoom(hostID uint64) uint64 {
 	roomID := wsm.nextRoomID
 	wsm.nextRoomID++
 
@@ -173,6 +188,7 @@ func (wsm *WebSocketManager) CreateRoom(hostID uint64) uint64 {
 	}
 	wsm.Rooms[roomID] = room
 
+	log.Printf("[DEBUG] created room %d with host client %d", roomID, hostID)
 	return roomID
 }
 
@@ -195,7 +211,7 @@ func (wsm *WebSocketManager) disconnectUser(userID uint64) {
 			for _, peerConn := range room.Users {
 				if peerConn != nil {
 					_ = peerConn.Conn.WriteJSON(Message{
-						Type:   TypePeerLeft,
+						Type:   MessageTypePeerLeft,
 						RoomID: roomID,
 						Sender: userID,
 					})
@@ -212,29 +228,12 @@ func (wsm *WebSocketManager) disconnectUser(userID uint64) {
 		}
 	}
 
-	// Release the API key associated with this user ID
-	for apiKey, id := range wsm.apiKeyToUserID {
-		if id == userID {
-			delete(wsm.apiKeyToUserID, apiKey)
-			log.Printf("[WS] API key %s released for user %d", apiKey, userID)
-			break
-		}
-	}
-}
-
-func (wsm *WebSocketManager) sendPings(userID uint64, conn *websocket.Conn) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	conn.SetPongHandler(func(string) error {
-		return nil
-	})
-
-	for range ticker.C {
-		if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-			log.Printf("[WS] Ping to user %d failed: %v", userID, err)
-			wsm.disconnectChan <- userID
-			return
-		}
-	}
+	// TODO: Release the API key associated with this user ID
+	// for apiKey, id := range wsm.apiKeyToUserID {
+	// 	if id == userID {
+	// 		delete(wsm.apiKeyToUserID, apiKey)
+	// 		log.Printf("[WS] API key %s released for user %d", apiKey, userID)
+	// 		break
+	// 	}
+	// }
 }

@@ -2,6 +2,8 @@ package e2e_test
 
 import (
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,15 +50,11 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 	assert.NoError(t, err, "Client D failed to join room")
 
 	t.Logf("---- Waiting for data channels to open ----")
-	// TODO: there's actually a bug here
-	// - clientB only connects to peer 1
-	// - clientC only connects to peer 1 & 2
-	// - clientD only connects to peer 1, 2, & 3
-	// thus, the mesh isn't complete
 	readyDataChannels := 0
 	totalPeers := 4
 	totalDataChannels := (totalPeers - 1) * totalPeers
 	dataChDeadline := time.After(3 * time.Second)
+
 	for readyDataChannels < totalDataChannels {
 		select {
 		case <-clientA.PeerManager.PeerEventsCh:
@@ -70,55 +68,63 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 
 		case <-dataChDeadline:
 			{
-				t.Logf("clients took longer than 3 secs to open their data channels, only opened: %d.. continuing anyways", readyDataChannels)
-				// t.Fatalf("clients took longer than 10 secs to open their data channels, only opened: %d", readyDataChannels)
+				t.Fatalf("clients took longer than 3 secs to open their data channels, only opened: %d", readyDataChannels)
 			}
 		}
 	}
 	t.Logf("---- Data channels open! ----")
 
+	rounds := 1
+	msgsSent := atomic.Uint32{}
+	msgsReceived := atomic.Uint32{}
+	msgToSendPerUser := totalPeers - 1
+	totalMsgsToSend := uint32(totalPeers * msgToSendPerUser * rounds)
+	msgsToReceive := uint32(totalMsgsToSend)
+	t.Logf("total messages to send: %d", totalMsgsToSend)
+	wg := sync.WaitGroup{}
+
 	for round := 1; round <= 1; round++ {
 		t.Logf("---- Round %d ----", round)
+
 		for _, sender := range clients {
-			senderID := strconv.FormatUint(sender.Websocket.UserID, 10)
+			wg.Add(1)
 
-			peerIDs := sender.PeerManager.GetPeerIDs()
-			for _, peerID := range peerIDs {
-				receiverID := strconv.FormatUint(peerID, 10)
-				message := "Round " + strconv.Itoa(round) +
-					" | from client " + senderID +
-					" | to client " + receiverID
+			go func() {
+				senderID := strconv.FormatUint(sender.Websocket.UserID, 10)
 
-				// errs:
-				// 1 -> 4
-				// 2 -> 3
-				// 2 -> 4
-				// 3 -> 2
-				// 4 -> 1
-				// 4 -> 2
+				peerIDs := sender.PeerManager.GetPeerIDs()
+				for _, peerID := range peerIDs {
+					receiverID := strconv.FormatUint(peerID, 10)
+					message := "Round " + strconv.Itoa(round) +
+						" | from client " + senderID +
+						" | to client " + receiverID
 
-				// 1 -> 4
-				// 2 -> 4
-				// 4 -> 1
-				// 4 -> 2
-				// 4 -> 3
+					t.Logf("%d sending message to %d", sender.Websocket.UserID, peerID)
+					err := sender.SendMessageToPeer(peerID, message)
+					assert.NoErrorf(t, err, "failed to send message from client %s to peer %s", senderID, receiverID)
+					msgsSent.Add(1)
+				}
 
-				// ok run:
-				// four_users_test.go:105: 1 sending message to 3
-				// four_users_test.go:105: 1 sending message to 4
-				// four_users_test.go:105: 1 sending message to 2
-				// four_users_test.go:105: 2 sending message to 1
-				// four_users_test.go:105: 2 sending message to 3
-				// four_users_test.go:105: 2 sending message to 4
-				// four_users_test.go:105: 3 sending message to 4
-				// four_users_test.go:105: 3 sending message to 1
-				// four_users_test.go:105: 3 sending message to 2
+				for range msgToSendPerUser {
+					select {
+					case <-sender.MsgOutCh:
+						msgsReceived.Add(1)
+					case <-time.After(3 * time.Second):
+						t.Errorf("client %s waited too long for the message", senderID)
+						return
+					}
+				}
 
-				t.Logf("%d sending message to %d", sender.Websocket.UserID, peerID)
-				err := sender.SendMessageToPeer(peerID, message)
-				assert.NoErrorf(t, err, "Failed to send message from client %s to peer %s", senderID, receiverID)
-			}
+				wg.Done()
+			}()
 		}
 	}
+
+	wg.Wait()
+
+	assert.Equal(t, totalMsgsToSend, msgsSent.Load(), "didn't send all messages")
+	assert.Equal(t, msgsToReceive, msgsReceived.Load(), "didn't receive all messages")
+
 	t.Logf("All clients successfully exchanged messages")
+
 }

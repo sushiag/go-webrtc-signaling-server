@@ -52,7 +52,7 @@ type pmRemovePeer struct {
 }
 
 type PeerManager struct {
-	userID                uint64
+	UserID                uint64
 	hostID                uint64
 	peers                 map[uint64]*Peer
 	config                webrtc.Configuration
@@ -77,6 +77,7 @@ type SignalingMessage struct {
 	Users     []uint64           `json:"users,omitempty"`
 	Text      string             `json:"text,omitempty"`
 	Payload   Payload            `json:"payload,omitempty"`
+	UserID    uint64             `json:"userid,omitempty"`
 }
 
 type Payload struct {

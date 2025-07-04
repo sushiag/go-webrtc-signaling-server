@@ -20,4 +20,5 @@ type Message struct {
 	Users     []uint64           `json:"users,omitempty"`
 	Text      string             `json:"text,omitempty"`
 	Payload   Payload            `json:"payload"`
+	UserID    uint64             `json:"userid,omitempty"`
 }

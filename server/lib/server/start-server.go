@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -31,27 +30,19 @@ func StartServer(port string) (*http.Server, string) {
 	if apiKeyPath == "" {
 		apiKeyPath = "apikeys.txt"
 	}
-	log.Printf("[SERVER] Loading API keys from: %s", apiKeyPath)
 
-	manager := NewWebSocketManager()
+	wsManager := NewWebSocketManager()
 
-	apiKeys, err := LoadValidApiKeys(apiKeyPath)
+	authHandler, err := newAuthHandler()
 	if err != nil {
-		log.Printf("[SERVER] Failed to load API keys: %v", err)
-	} else {
-		log.Printf("[SERVER] Loaded %d API keys", len(apiKeys))
+		// TODO: return an error instead of panicking
+		log.Fatalf("[ERROR] failed to initialize auth handler: %v", err)
 	}
-	manager.SetValidApiKeys(apiKeys)
-	log.Printf("[SERVER] API keys set in manager")
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[SERVER] /auth called from %s", r.RemoteAddr)
-		manager.AuthHandler(w, r)
-	})
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
-		manager.Handler(w, r)
+		handleWSEndpoint(w, r, &authHandler, wsManager.newConnChan)
 	})
 
 	server := &http.Server{
@@ -71,27 +62,4 @@ func StartServer(port string) (*http.Server, string) {
 	log.Printf("[SERVER] StartServer returning")
 
 	return server, serverUrl
-}
-
-// LoadValidApiKeys loads API keys from a file
-func LoadValidApiKeys(path string) (map[string]bool, error) {
-	log.Printf("[SERVER] Opening API key file: %s", path)
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("could not open file: %v", err)
-	}
-	defer file.Close()
-
-	keys := make(map[string]bool)
-	scanner := bufio.NewScanner(file)
-	count := 0
-	for scanner.Scan() {
-		key := scanner.Text()
-		log.Printf("[SERVER] Loaded API key: %s", key)
-		keys[key] = true
-		count++
-	}
-	log.Printf("[SERVER] Total API keys loaded: %d", count)
-
-	return keys, scanner.Err()
 }

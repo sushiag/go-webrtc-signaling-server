@@ -34,6 +34,7 @@ const (
 	MessageTypeJoinRoom
 	MessageTypePeerListReq
 	MessageTypeRoomJoined
+	MessageTypeSetUserID
 )
 
 func (mt MessageType) ToString() (string, error) {
@@ -71,8 +72,11 @@ func (mt MessageType) ToString() (string, error) {
 		convertedType = "peer-list-req"
 	case MessageTypeRoomJoined:
 		convertedType = "room-joined"
+	case MessageTypeSetUserID:
+		convertedType = "set-user-id"
 	default:
-		err = fmt.Errorf("unknown message type: (%d)", mt)
+		convertedType = fmt.Sprintf("unknown (%d)", mt)
+		err = fmt.Errorf(convertedType)
 	}
 
 	return convertedType, err
@@ -111,34 +115,36 @@ func ParseMessageType(s string) (MessageType, error) {
 	var parsedType MessageType
 	var err error
 	switch s {
+	case "create-room":
+		parsedType = MessageTypeCreateRoom
+	case "join-room":
+		parsedType = MessageTypeJoinRoom
 	case "offer":
 		parsedType = MessageTypeOffer
 	case "answer":
 		parsedType = MessageTypeAnswer
 	case "ice-candidate":
 		parsedType = MessageTypeICECandidate
-	case "peer-joined":
-		parsedType = MessageTypePeerJoined
-	case "peer-left":
-		parsedType = MessageTypePeerLeft
 	case "disconnect":
 		parsedType = MessageTypeDisconnect
-	case "send-message":
-		parsedType = MessageTypeSendMessage
-	case "peer-list":
-		parsedType = MessageTypePeerList
-	case "host-changed":
-		parsedType = MessageTypeHostChanged
-	case "start-session":
-		parsedType = MessageTypeStartSession
+	case "peer-joined":
+		parsedType = MessageTypePeerJoined
 	case "room-created":
 		parsedType = MessageTypeRoomCreated
-	case "create-room":
-		parsedType = MessageTypeCreateRoom
-	case "join-room":
-		parsedType = MessageTypeJoinRoom
-	case "peer-list-req":
+	case "peer-list":
+		parsedType = MessageTypePeerList
+	case "start-session":
+		parsedType = MessageTypeStartSession
+	case "peer-list-request":
 		parsedType = MessageTypePeerListReq
+	case "host-changed":
+		parsedType = MessageTypeHostChanged
+	case "send-message":
+		parsedType = MessageTypeSendMessage
+	case "peer-left":
+		parsedType = MessageTypePeerLeft
+	case "set-user-id":
+		parsedType = MessageTypeSetUserID
 	case "room-joined":
 		parsedType = MessageTypeRoomJoined
 	default:

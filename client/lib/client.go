@@ -11,13 +11,11 @@ import (
 )
 
 type Client struct {
-	Websocket    *ws.Client
-	MsgOutCh     chan common.WebRTCMessage
-	PeerManager  *webrtc.PeerManager
-	cmdChan      chan peerCommand
-	wsResponseCh chan ws.Message
-
-	// crazy stuff
+	Websocket          *ws.Client
+	MsgOutCh           chan common.WebRTCMessage
+	PeerManager        *webrtc.PeerManager
+	cmdChan            chan peerCommand
+	wsResponseCh       chan ws.Message
 	createRoomRespCh   chan error
 	joinRoomRespCh     chan error
 	startSessionRespCh chan error
@@ -64,10 +62,6 @@ func NewClient(wsEndpoint string) *Client {
 }
 
 func (c *Client) Connect() error {
-	if err := c.Websocket.PreAuthenticate(); err != nil {
-		return fmt.Errorf("authentication failed: %v", err)
-	}
-
 	c.PeerManager = webrtc.NewPeerManager(c.Websocket.UserID, c.MsgOutCh)
 	if c.PeerManager == nil {
 		return fmt.Errorf("failed to initialize PeerManager")
@@ -82,7 +76,7 @@ func (c *Client) Connect() error {
 }
 
 func (c *Client) CreateRoom() error {
-	log.Println("[Client] Creating room (set as host)")
+	log.Printf("[Client: %d] Creating room (set as host)", c.Websocket.UserID)
 
 	c.createRoomRespCh = make(chan error, 1)
 	defer func() {

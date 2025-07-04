@@ -25,7 +25,6 @@ func (c *Client) startWSLoops() {
 		}()
 
 		for {
-			// var msg ws.Message
 			msgType, data, err := c.Websocket.Conn.ReadMessage()
 			if err != nil {
 				log.Printf("[ERROR: %d]: failed to read WS message from server: %v", c.Websocket.UserID, err)
@@ -44,18 +43,17 @@ func (c *Client) startWSLoops() {
 						log.Printf("[ERROR: %d]: failed to unmarshal JSON WS message from server: %v", c.Websocket.UserID, err)
 						continue
 					}
-					log.Printf("[INFO: %d]: handling text message from server with type: %d", c.Websocket.UserID, jsonMsg.Type)
+
+					msgTypeStr, err := jsonMsg.Type.ToString()
+					if err != nil {
+						log.Panicf("[ERROR: %d] got unknown message type from server: %v", c.Websocket.UserID, err)
+						continue
+					}
+
+					log.Printf("[INFO: %d]: handling text message from server with type: %s", c.Websocket.UserID, msgTypeStr)
 					c.handleMessage(jsonMsg)
 				}
 			}
-
-			// err := c.Websocket.Conn.ReadJSON(&msg)
-			// if err != nil {
-			// 	log.Printf("[ERROR: %d]: failed to read JSON message from WS conn: %v", c.Websocket.UserID, err)
-			// 	continue
-			// }
-			//
-			// c.handleMessage(msg)
 		}
 
 	}()
@@ -76,16 +74,19 @@ func (c *Client) startWSLoops() {
 						break
 					}
 
-					if msg.RoomID == 0 {
-						msg.RoomID = c.Websocket.RoomID
-					}
-
-					if msg.Sender == 0 {
-						msg.Sender = c.Websocket.UserID
-					}
+					// kinda hacky but we must set these correctly before sending
+					msg.RoomID = c.Websocket.RoomID
+					msg.Sender = c.Websocket.UserID
 
 					// NOTE: debug logging, should be removed later
-					log.Printf("[SEND LOOP: %d] writing message type to WS conn for %d, %v", c.Websocket.UserID, msg.Type, msg.Target)
+					msgTypeStr, err := msg.Type.ToString()
+					if err != nil {
+						log.Panicf("tried to send an unknown message type to the server: %v", err)
+					}
+					log.Printf("[SEND LOOP: %d] writing message type `%s` to WS conn", c.Websocket.UserID, msgTypeStr)
+
+					log.Printf("[SEND LOOP: %d] MSG ROOM ID %d", c.Websocket.UserID, msg.RoomID)
+
 					b, err := json.Marshal(msg)
 					if err != nil {
 						log.Printf("[SEND LOOP: %d] failed to marshal WS message: %v", c.Websocket.UserID, err)
@@ -119,20 +120,25 @@ func (c *Client) startWSLoops() {
 
 func (c *Client) handleMessage(msg ws.Message) {
 	switch msg.Type {
+	case common.MessageTypeSetUserID:
+		{
+			oldID := c.Websocket.UserID
+			c.Websocket.UserID = msg.UserID
+			c.PeerManager.UserID = msg.UserID
+			log.Printf("user id set from %d to %d", oldID, msg.UserID)
+		}
+
 	case common.MessageTypeRoomCreated:
 		{
-			log.Printf("Room created: %d\n", msg.RoomID)
+			log.Printf("[DEBUG: %d] created room %d\n", c.Websocket.UserID, msg.RoomID)
 			c.Websocket.RoomID = msg.RoomID
 			c.createRoomRespCh <- nil
 		}
 
 	case common.MessageTypeRoomJoined:
 		{
+			log.Printf("[DEBUG: %d] joined room %d\n", c.Websocket.UserID, msg.RoomID)
 			c.Websocket.RoomID = msg.RoomID
-
-			// request peer list
-			c.Websocket.SendWSMsgCh <- ws.Message{Type: common.MessageTypePeerListReq}
-
 			c.joinRoomRespCh <- nil
 		}
 
@@ -182,17 +188,14 @@ func (c *Client) handleMessage(msg ws.Message) {
 			c.Websocket.SendWSMsgCh <- msg
 		}
 
-	case common.MessageTypePeerList:
+	case common.MessageTypePeerJoined:
 		{
+			log.Printf("[DEBUG: %d] got joined room message for: %d", c.Websocket.UserID, msg.UserID)
+
 			// TODO: maybe we don't really need to convert types here
 			signalingMsg := webrtc.SignalingMessage{
-				Type:      msg.Type,
-				Sender:    msg.Sender,
-				Target:    msg.Target,
-				SDP:       msg.SDP,
-				Candidate: msg.Candidate,
-				Text:      msg.Text,
-				Users:     msg.Users,
+				Type:   msg.Type,
+				UserID: msg.UserID,
 			}
 			c.PeerManager.HandleIncomingMessage(signalingMsg, c.Websocket.SendWSMsgCh)
 
@@ -203,7 +206,7 @@ func (c *Client) handleMessage(msg ws.Message) {
 			}
 		}
 
-	case common.MessageTypePeerJoined,
+	case
 		common.MessageTypePeerLeft,
 		common.MessageTypeOffer,
 		common.MessageTypeAnswer,
@@ -219,13 +222,15 @@ func (c *Client) handleMessage(msg ws.Message) {
 				Candidate: msg.Candidate,
 				Text:      msg.Text,
 				Users:     msg.Users,
+				UserID:    msg.UserID,
 			}
 			c.PeerManager.HandleIncomingMessage(signalingMsg, c.Websocket.SendWSMsgCh)
 		}
 
 	default:
 		{
-			log.Printf("[CLIENT SIGNALING] Unhandled message type `%d`: %v", msg.Type, msg)
+			msgTypeStr, _ := msg.Type.ToString()
+			log.Printf("[CLIENT SIGNALING] Unhandled message type: %s", msgTypeStr)
 		}
 	}
 }

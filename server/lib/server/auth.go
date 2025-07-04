@@ -1,94 +1,69 @@
 package server
 
 import (
-	"encoding/json"
+	"bufio"
+	"fmt"
 	"log"
-	"net/http"
-
-	"github.com/gorilla/websocket"
+	"os"
+	"sync/atomic"
 )
+
+type authHandler struct {
+	// NOTE: this map is only thread-safe if we don't change the keys after initialization!
+	apiKeys    map[string]*atomic.Bool
+	nextUserID uint64
+}
+
+func newAuthHandler() (authHandler, error) {
+	authHandler := authHandler{
+		nextUserID: 0,
+	}
+
+	apiKeyPath := os.Getenv("APIKEY_PATH")
+	if apiKeyPath == "" {
+		apiKeyPath = "apikeys.txt"
+	}
+	log.Printf("[SERVER] Loading API keys from: %s", apiKeyPath)
+
+	file, err := os.Open(apiKeyPath)
+	if err != nil {
+		return authHandler, fmt.Errorf("could not open file: %v", err)
+	}
+	defer file.Close()
+
+	authHandler.apiKeys = make(map[string]*atomic.Bool)
+	scanner := bufio.NewScanner(file)
+	count := 0
+	for scanner.Scan() {
+		key := scanner.Text()
+		log.Printf("[SERVER] Loaded API key: %s", key)
+		authHandler.apiKeys[key] = &atomic.Bool{}
+		count++
+	}
+	log.Printf("[SERVER] Total API keys loaded: %d", count)
+
+	return authHandler, scanner.Err()
+}
+
+func (handler *authHandler) authenticate(apiKey string) (uint64, error) {
+	var userID uint64
+
+	isUsed, exists := handler.apiKeys[apiKey]
+	if !exists {
+		return userID, fmt.Errorf("invalid api key")
+	}
+
+	if !isUsed.CompareAndSwap(false, true) {
+		return userID, fmt.Errorf("api key already in use!")
+	}
+
+	userID = handler.nextUserID
+	handler.nextUserID += 1
+
+	return userID, nil
+}
 
 func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v Message) error {
 	c.Outgoing <- v
 	return nil
-}
-
-func (wsm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
-	wsm.validApiKeys = keys
-}
-
-func (wsm *WebSocketManager) Authenticate(r *http.Request) bool {
-	return wsm.validApiKeys[r.Header.Get("X-Api-Key")]
-}
-
-// this handles the initial API key authentication via HTTP
-func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload struct {
-		ApiKey string `json:"apikey"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	if !wsm.validApiKeys[payload.ApiKey] {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	userID := wsm.nextUserID
-	wsm.apiKeyToUserID[payload.ApiKey] = userID
-	wsm.nextUserID++
-
-	resp := struct {
-		UserID uint64 `json:"userid"`
-	}{
-		UserID: userID,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-}
-
-func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
-	if !wsm.Authenticate(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	apiKey := r.Header.Get("X-Api-Key")
-	userID := wsm.apiKeyToUserID[apiKey]
-
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
-	}
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("[WS] Upgrade failed: %v", err)
-		return
-	}
-
-	if _, ok := wsm.Connections[userID]; ok {
-		log.Printf("[WS] Duplicate connection attempt for user %d. Denying new connection.", userID)
-		closeMsg := websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Duplicate connection detected")
-		conn.WriteMessage(websocket.CloseMessage, closeMsg)
-		conn.Close()
-		return
-	}
-	connection := NewConnection(userID, conn, wsm.messageChan, wsm.disconnectChan)
-	wsm.Connections[userID] = connection
-
-	// Flush buffered candidates if any
-	wsm.flushBufferedMessages(userID)
-
-	log.Printf("[WS] User %d connected", userID)
-
-	c := NewConnection(userID, conn, wsm.messageChan, wsm.disconnectChan)
-	wsm.Connections[userID] = c
-	go wsm.sendPings(userID, conn)
 }

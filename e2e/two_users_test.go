@@ -55,7 +55,7 @@ func TestEndToEndSignaling(t *testing.T) {
 		case ev := <-clientA.PeerManager.PeerEventsCh:
 			{
 				clientAPeers = clientA.PeerManager.GetPeerIDs()
-				assert.Equal(t, clientAPeers, []uint64{2}, "wrong client A peers")
+				assert.Equal(t, clientAPeers, []uint64{1}, "wrong client A peers")
 				t.Logf("Client A peers: %v", clientAPeers)
 				assert.Equal(t, ev, common.PeerDataChOpened{PeerID: clientAPeers[0]})
 				readyDataChannels += 1
@@ -64,7 +64,7 @@ func TestEndToEndSignaling(t *testing.T) {
 		case ev := <-clientB.PeerManager.PeerEventsCh:
 			{
 				clientBPeers = clientB.PeerManager.GetPeerIDs()
-				assert.Equal(t, clientBPeers, []uint64{1}, "wrong client B peers")
+				assert.Equal(t, clientBPeers, []uint64{0}, "wrong client B peers")
 				t.Logf("Client B peers: %v", clientBPeers)
 				assert.Equal(t, ev, common.PeerDataChOpened{PeerID: clientBPeers[0]})
 				readyDataChannels += 1

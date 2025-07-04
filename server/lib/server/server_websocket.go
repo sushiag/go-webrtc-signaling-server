@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/gorilla/websocket"
 )
@@ -10,23 +11,22 @@ type MessageType int
 
 // message type for the readmessages
 const (
-	TypeCreateRoom MessageType = iota
-	TypeJoin
-	TypeOffer
-	TypeAnswer
-	TypeICE
-	TypeDisconnect
-	TypeText
-	TypePeerJoined
-	TypePeerLeft
-	TypeRoomCreated
-	TypePeerList
-	TypePeerReady
-	TypeStart
-	TypeStartP2P
-	TypePeerListRequest
-	TypeHostChanged
-	TypeSendMessage
+	MessageTypeOffer MessageType = iota
+	MessageTypeAnswer
+	MessageTypeICECandidate
+	MessageTypePeerJoined
+	MessageTypePeerLeft
+	MessageTypeDisconnect
+	MessageTypeSendMessage
+	MessageTypePeerList
+	MessageTypeHostChanged
+	MessageTypeStartSession
+	MessageTypeRoomCreated
+	MessageTypeCreateRoom
+	MessageTypeJoinRoom
+	MessageTypePeerListReq
+	MessageTypeRoomJoined
+	MessageTypeSetUserID
 )
 
 type Message struct {
@@ -53,42 +53,40 @@ type Room struct {
 
 func (t MessageType) String() string {
 	switch t {
-	case TypeCreateRoom:
+	case MessageTypeCreateRoom:
 		return "create-room"
-	case TypeJoin:
+	case MessageTypeJoinRoom:
 		return "join-room"
-	case TypeOffer:
+	case MessageTypeOffer:
 		return "offer"
-	case TypeAnswer:
+	case MessageTypeAnswer:
 		return "answer"
-	case TypeICE:
+	case MessageTypeICECandidate:
 		return "ice-candidate"
-	case TypeDisconnect:
+	case MessageTypeDisconnect:
 		return "disconnect"
-	case TypeText:
-		return "text"
-	case TypePeerJoined:
-		return "room-joined"
-	case TypeRoomCreated:
+	case MessageTypePeerJoined:
+		return "peer-joined"
+	case MessageTypeRoomCreated:
 		return "room-created"
-	case TypePeerList:
+	case MessageTypePeerList:
 		return "peer-list"
-	case TypePeerReady:
-		return "peer-ready"
-	case TypeStart:
-		return "start"
-	case TypeStartP2P:
+	case MessageTypeStartSession:
 		return "start-session"
-	case TypePeerListRequest:
+	case MessageTypePeerListReq:
 		return "peer-list-request"
-	case TypeHostChanged:
+	case MessageTypeHostChanged:
 		return "host-changed"
-	case TypeSendMessage:
+	case MessageTypeSendMessage:
 		return "send-message"
-	case TypePeerLeft:
+	case MessageTypePeerLeft:
 		return "peer-left"
+	case MessageTypeSetUserID:
+		return "set-user-id"
+	case MessageTypeRoomJoined:
+		return "room-joined"
 	default:
-		return "unknown"
+		return fmt.Sprintf("unknown (%d)", t)
 	}
 }
 
@@ -103,39 +101,33 @@ func (t *MessageType) UnmarshalJSON(data []byte) error {
 	}
 	switch s {
 	case "create-room":
-		*t = TypeCreateRoom
+		*t = MessageTypeCreateRoom
 	case "join-room":
-		*t = TypeJoin
+		*t = MessageTypeJoinRoom
 	case "offer":
-		*t = TypeOffer
+		*t = MessageTypeOffer
 	case "answer":
-		*t = TypeAnswer
+		*t = MessageTypeAnswer
 	case "ice-candidate":
-		*t = TypeICE
+		*t = MessageTypeICECandidate
 	case "disconnect":
-		*t = TypeDisconnect
-	case "text":
-		*t = TypeText
+		*t = MessageTypeDisconnect
 	case "room-joined":
-		*t = TypePeerJoined
+		*t = MessageTypePeerJoined
 	case "room-created":
-		*t = TypeRoomCreated
+		*t = MessageTypeRoomCreated
 	case "peer-list":
-		*t = TypePeerList
-	case "peer-ready":
-		*t = TypePeerReady
-	case "start":
-		*t = TypeStart
+		*t = MessageTypePeerList
 	case "start-session":
-		*t = TypeStartP2P
+		*t = MessageTypeStartSession
 	case "peer-list-request":
-		*t = TypePeerListRequest
+		*t = MessageTypePeerListReq
 	case "host-changed":
-		*t = TypeHostChanged
+		*t = MessageTypeHostChanged
 	case "send-message":
-		*t = TypeSendMessage
+		*t = MessageTypeSendMessage
 	case "peer-left":
-		*t = TypePeerLeft
+		*t = MessageTypePeerLeft
 	default:
 		*t = -1
 	}
@@ -146,13 +138,12 @@ func (t *MessageType) UnmarshalJSON(data []byte) error {
 type WebSocketManager struct {
 	Connections     map[uint64]*Connection
 	Rooms           map[uint64]*Room
-	validApiKeys    map[string]bool
-	apiKeyToUserID  map[string]uint64
 	nextUserID      uint64
 	nextRoomID      uint64
 	candidateBuffer map[uint64][]Message
 	messageChan     chan Message
 	disconnectChan  chan uint64
+	newConnChan     chan *Connection
 }
 
 // this handles connection that starts its own goroutine
@@ -169,12 +160,12 @@ func NewWebSocketManager() *WebSocketManager {
 	wsm := &WebSocketManager{
 		Connections:     make(map[uint64]*Connection),
 		Rooms:           make(map[uint64]*Room),
-		apiKeyToUserID:  make(map[string]uint64),
 		candidateBuffer: make(map[uint64][]Message),
 		nextUserID:      1,
 		nextRoomID:      1,
 		messageChan:     make(chan Message),
 		disconnectChan:  make(chan uint64),
+		newConnChan:     make(chan *Connection),
 	}
 	go wsm.run()
 	return wsm
@@ -185,6 +176,8 @@ func (wsm *WebSocketManager) run() {
 		select {
 		case msg := <-wsm.messageChan:
 			wsm.handleMessage(msg)
+		case newConn := <-wsm.newConnChan:
+			wsm.handleNewConnection(newConn)
 		case userID := <-wsm.disconnectChan:
 			wsm.disconnectUser(userID)
 		}
