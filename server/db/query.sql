@@ -10,7 +10,7 @@ AND password = ?;
 
 -- name: DeleteUser :exec
 DELETE FROM users
-WHERE id = ?
+WHERE id = ?;
 
 -- name: GetUserByUsername :one
 SELECT * FROM users WHERE username = ?;
