@@ -10,17 +10,18 @@ import (
 )
 
 const createUser = `-- name: CreateUser :exec
-INSERT INTO users (username, password)
-VALUES (?, ?)
+INSERT INTO users (username, password, api_key)
+VALUES (?, ?, ?)
 `
 
 type CreateUserParams struct {
 	Username string
 	Password string
+	ApiKey   interface{}
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
-	_, err := q.db.ExecContext(ctx, createUser, arg.Username, arg.Password)
+	_, err := q.db.ExecContext(ctx, createUser, arg.Username, arg.Password, arg.ApiKey)
 	return err
 }
 
@@ -34,15 +35,51 @@ func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
 	return err
 }
 
+const getUserByApikeys = `-- name: GetUserByApikeys :one
+SELECT id, username, password, api_key FROM users WHERE api_key = ?
+`
+
+func (q *Queries) GetUserByApikeys(ctx context.Context, apiKey interface{}) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByApikeys, apiKey)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Password,
+		&i.ApiKey,
+	)
+	return i, err
+}
+
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password FROM users WHERE username = ?
+SELECT id, username, password, api_key FROM users WHERE username = ?
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUserByUsername, username)
 	var i User
-	err := row.Scan(&i.ID, &i.Username, &i.Password)
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Password,
+		&i.ApiKey,
+	)
 	return i, err
+}
+
+const updateAPIKey = `-- name: UpdateAPIKey :exec
+UPDATE users SET api_key = ? WHERE username = ? AND password = ?
+`
+
+type UpdateAPIKeyParams struct {
+	ApiKey   interface{}
+	Username string
+	Password string
+}
+
+func (q *Queries) UpdateAPIKey(ctx context.Context, arg UpdateAPIKeyParams) error {
+	_, err := q.db.ExecContext(ctx, updateAPIKey, arg.ApiKey, arg.Username, arg.Password)
+	return err
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec

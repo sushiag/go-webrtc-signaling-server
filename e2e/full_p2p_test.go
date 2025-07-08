@@ -1,18 +1,26 @@
 package e2e_test
 
 import (
+	"database/sql"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	client "github.com/sushiag/go-webrtc-signaling-server/client/lib"
+	"github.com/sushiag/go-webrtc-signaling-server/server/lib/db"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
 )
 
 func TestP2PAfterStartSession(t *testing.T) {
-	srv, serverURL := server.StartServer("0")
-	defer srv.Close()
+	conn, err := sql.Open("sqlite3", "file:test.db?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("failed to open DB: %v", err)
+	}
+
+	queries := db.New(conn)
+	server, serverURL := server.StartServer("0", queries)
+	defer server.Close()
 
 	apiKeyA := "valid-api-key-1"
 	apiKeyB := "valid-api-key-2"
@@ -23,7 +31,7 @@ func TestP2PAfterStartSession(t *testing.T) {
 	clientA.SetApiKey(apiKeyA)
 	clientB.SetApiKey(apiKeyB)
 
-	err := clientA.Connect()
+	err = clientA.Connect()
 	assert.NoError(t, err, "Client A failed to connect")
 
 	err = clientB.Connect()

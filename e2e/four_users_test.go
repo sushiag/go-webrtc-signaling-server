@@ -1,17 +1,25 @@
 package e2e_test
 
 import (
+	"database/sql"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	client "github.com/sushiag/go-webrtc-signaling-server/client/lib"
+	"github.com/sushiag/go-webrtc-signaling-server/server/lib/db"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
 )
 
 func TestEndToEndSignalingFourUsers(t *testing.T) {
-	server, serverUrl := server.StartServer("0")
+	conn, err := sql.Open("sqlite3", "file:test.db?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("failed to open DB: %v", err)
+	}
+
+	queries := db.New(conn)
+	server, serverUrl := server.StartServer("0", queries)
 	defer server.Close()
 
 	apiKeyA, apiKeyB, apiKeyC, apiKeyD := "valid-api-key-1", "valid-api-key-2", "valid-api-key-3", "valid-api-key-4"
@@ -33,7 +41,7 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 		assert.NoError(t, err, "Client %d failed to connect", i)
 	}
 
-	err := clientA.CreateRoom()
+	err = clientA.CreateRoom()
 	assert.NoError(t, err, "Client A failed to create room")
 
 	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)

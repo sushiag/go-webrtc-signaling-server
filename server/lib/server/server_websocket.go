@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/gorilla/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/server/lib/db"
 )
 
 type MessageType int
@@ -153,6 +154,9 @@ type WebSocketManager struct {
 	candidateBuffer map[uint64][]Message
 	messageChan     chan Message
 	disconnectChan  chan uint64
+
+	//sqlite
+	Queries *db.Queries
 }
 
 // this handles connection that starts its own goroutine

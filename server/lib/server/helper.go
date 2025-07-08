@@ -33,7 +33,7 @@ func (wsm *WebSocketManager) AddUserToRoom(roomID, userID uint64) {
 			ID:       roomID,
 			Users:    make(map[uint64]*Connection),
 			ReadyMap: make(map[uint64]bool),
-			HostID:   userID, // added to solve the problem with  host not being track
+			HostID:   userID, // added to solve the problem with host not being track
 		}
 		wsm.Rooms[roomID] = room
 	}

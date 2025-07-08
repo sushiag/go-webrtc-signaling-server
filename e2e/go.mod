@@ -7,6 +7,7 @@ replace github.com/sushiag/go-webrtc-signaling-server/server => ../server
 go 1.23.5
 
 require (
+	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/stretchr/testify v1.10.0
 	github.com/sushiag/go-webrtc-signaling-server/client v0.0.0-00010101000000-000000000000
 	github.com/sushiag/go-webrtc-signaling-server/server v0.0.0-20250501162938-30973ccb994f
@@ -35,8 +36,8 @@ require (
 	github.com/pion/webrtc/v4 v4.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

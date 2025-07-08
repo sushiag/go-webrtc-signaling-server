@@ -17,8 +17,14 @@ func (wsm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
 	wsm.validApiKeys = keys
 }
 
-func (wsm *WebSocketManager) Authenticate(r *http.Request) bool {
-	return wsm.validApiKeys[r.Header.Get("X-Api-Key")]
+func (wsm *WebSocketManager) Authenticate(r *http.Request) (uint64, bool) {
+
+	apikey := r.Header.Get("X-Api-Key")
+	user, err := wsm.Queries.GetUserByApikeys(r.Context(), apikey)
+	if err != nil {
+		return 0, false
+	}
+	return uint64(user.ID), true
 }
 
 // this handles the initial API key authentication via HTTP
@@ -31,38 +37,35 @@ func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request)
 	var payload struct {
 		ApiKey string `json:"apikey"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	if !wsm.validApiKeys[payload.ApiKey] {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	user, err := wsm.Queries.GetUserByApikeys(r.Context(), payload.ApiKey)
+	if err != nil {
+		http.Error(w, "Unauthorized access", http.StatusUnauthorized)
 		return
 	}
 
-	userID := wsm.nextUserID
-	wsm.apiKeyToUserID[payload.ApiKey] = userID
-	wsm.nextUserID++
-
 	resp := struct {
-		UserID uint64 `json:"userid"`
+		UserID uint64 `json:"userID"`
 	}{
-		UserID: userID,
+		UserID: uint64(user.ID),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+
 }
 
 func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
-	if !wsm.Authenticate(r) {
+	userID, ok := wsm.Authenticate(r)
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	apiKey := r.Header.Get("X-Api-Key")
-	userID := wsm.apiKeyToUserID[apiKey]
 
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
