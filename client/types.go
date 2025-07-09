@@ -4,6 +4,8 @@ import (
 	"sync"
 
 	"github.com/pion/webrtc/v4"
+
+	sm "signaling-msgs"
 )
 
 type WebRTCMsg struct {
@@ -32,7 +34,7 @@ type signalingManager struct {
 	sdpSignalingCh   chan sdpSignalingRequest
 	iceSignalingCh   chan iceSignalingRequest
 	wsClientID       uint64
-	wsSendCh         chan<- WSMessage
+	wsSendCh         chan<- sm.Message
 	signalingEventCh <-chan SignalingEvent
 }
 

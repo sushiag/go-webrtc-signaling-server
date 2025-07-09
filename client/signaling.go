@@ -8,60 +8,9 @@ import (
 	"strconv"
 
 	"github.com/gorilla/websocket"
+
+	sm "signaling-msgs"
 )
-
-type WSMessageType = uint8
-
-type WSMessage struct {
-	MsgType WSMessageType   `json:"type"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-const (
-	Ping WSMessageType = iota
-	Pong
-	CreateRoom
-	RoomCreated
-	JoinRoom
-	RoomJoined
-	LeaveRoom
-	SDP
-	ICECandidate
-)
-
-// Helper function for serializing message payloads to json.RawMessage
-//
-// NOTE: only use this for tests since this will panic if serialization fails!
-func toRawMessagePayload(payload any) json.RawMessage {
-	msg, err := json.Marshal(payload)
-	if err != nil {
-		log.Fatalf("failed to marshal WS message")
-	}
-
-	return msg
-}
-
-type RoomCreatedPayload struct {
-	RoomID uint64 `json:"room_id"`
-}
-
-type JoinRoomPayload struct {
-	RoomID uint64 `json:"room_id"`
-}
-
-type RoomJoinedPayload struct {
-	RoomID uint64 `json:"room_id"`
-}
-
-type SDPPayload struct {
-	SDP string `json:"sdp"`
-	For uint64 `json:"for"`
-}
-
-type ICECandidatePayload struct {
-	ICE string `json:"ice"`
-	For uint64 `json:"for"`
-}
 
 type SignalingEvent any
 
@@ -94,13 +43,13 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 	}
 	mngr.wsClientID = clientID
 
-	wsSendCh := make(chan WSMessage, 32)
+	wsSendCh := make(chan sm.Message, 32)
 	signalingEventCh := make(chan SignalingEvent, 32)
 
 	// WS read loop
 	go func() {
 		for {
-			var msg WSMessage
+			var msg sm.Message
 			err := wsConn.ReadJSON(&msg)
 			if err != nil {
 				log.Printf("[ERROR] failed to read incoming WS message: %v", err)
@@ -108,18 +57,18 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 			log.Printf("[DEBUG] received WS message with type: '%d'", msg.MsgType)
 
 			switch msg.MsgType {
-			case Ping:
+			case sm.Ping:
 				{
 					log.Printf("[INFO] got ping from server!")
-					wsSendCh <- WSMessage{MsgType: Pong}
+					wsSendCh <- sm.Message{MsgType: sm.Pong}
 				}
-			case Pong:
+			case sm.Pong:
 				{
 					log.Printf("[INFO] got pong from server!")
 				}
-			case RoomCreated:
+			case sm.RoomCreated:
 				{
-					var payload RoomCreatedPayload
+					var payload sm.RoomCreatedPayload
 					err := json.Unmarshal(msg.Payload, &payload)
 					if err != nil {
 						log.Printf("[ERROR] failed to unmarshal RoomCreated message payload: %v", err)
@@ -128,9 +77,9 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 
 					signalingEventCh <- RoomCreatedEvent{RoomID: payload.RoomID}
 				}
-			case RoomJoined:
+			case sm.RoomJoined:
 				{
-					var payload RoomJoinedPayload
+					var payload sm.RoomJoinedPayload
 					err := json.Unmarshal(msg.Payload, &payload)
 					if err != nil {
 						log.Printf("[ERROR] failed to unmarshal RoomJoined message payload: %v", err)
@@ -158,7 +107,7 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 				}
 			case sdpReq := <-mngr.sdpSignalingCh:
 				{
-					payload, marshalPayloadErr := json.Marshal(SDPPayload{
+					payload, marshalPayloadErr := json.Marshal(sm.SDPPayload{
 						SDP: sdpReq.sdp.SDP,
 						For: sdpReq.to,
 					})
@@ -166,8 +115,8 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 						log.Printf("[ERROR] failed to JSON marshal SDP message: %v", marshalPayloadErr)
 					}
 
-					msg := WSMessage{
-						MsgType: SDP,
+					msg := sm.Message{
+						MsgType: sm.SDP,
 						Payload: payload,
 					}
 					wsWriteErr := wsConn.WriteJSON(msg)
@@ -179,7 +128,7 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 				}
 			case iceReq := <-mngr.iceSignalingCh:
 				{
-					payload, marshalPayloadErr := json.Marshal(ICECandidatePayload{
+					payload, marshalPayloadErr := json.Marshal(sm.ICECandidatePayload{
 						ICE: iceReq.iceCandidate.ToJSON().Candidate,
 						For: iceReq.to,
 					})
@@ -187,8 +136,8 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 						log.Printf("[ERROR] failed to JSON marshal ICE candidate: %v", marshalPayloadErr)
 					}
 
-					msg := WSMessage{
-						MsgType: SDP,
+					msg := sm.Message{
+						MsgType: sm.SDP,
 						Payload: payload,
 					}
 					wsWriteErr := wsConn.WriteJSON(msg)
