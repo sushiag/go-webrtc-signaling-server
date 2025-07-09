@@ -29,9 +29,12 @@ type pendingPeerConnection struct {
 }
 
 type signalingManager struct {
-	clients        map[uint64]*webRTCPeerManager
-	sdpSignalingCh chan sdpSignalingRequest
-	iceSignalingCh chan iceSignalingRequest
+	clients          map[uint64]*webRTCPeerManager
+	sdpSignalingCh   chan sdpSignalingRequest
+	iceSignalingCh   chan iceSignalingRequest
+	wsClientID       uint64
+	wsSendCh         chan<- WSMessage
+	signalingEventCh <-chan SignalingEvent
 }
 
 type iceSignalingRequest struct {
