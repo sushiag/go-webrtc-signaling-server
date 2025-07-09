@@ -23,13 +23,14 @@ var mockSignaler = &signalingManager{
 }
 
 func TestPeerManager(t *testing.T) {
-	mockSignalingMngr := newMockSignalingManager(t)
+	pm1 := newPeerManager(nil, nil, 1)
+	pm2 := newPeerManager(nil, nil, 2)
+	clients := map[uint64]*webRTCPeerManager{
+		pm1.clientID: pm1,
+		pm2.clientID: pm2,
+	}
 
-	pm1 := newPeerManager(mockSignalingMngr, 1)
-	pm2 := newPeerManager(mockSignalingMngr, 2)
-
-	mockSignalingMngr.clients[pm1.clientID] = pm1
-	mockSignalingMngr.clients[pm2.clientID] = pm2
+	newMockSignalingServer(t, clients)
 
 	pm1.newPeerOffer(pm2.clientID)
 
@@ -149,68 +150,88 @@ func TestPeerManager(t *testing.T) {
 	wg.Wait()
 }
 
-func newMockSignalingManager(t *testing.T) *signalingManager {
-	mngr := &signalingManager{
-		clients:        make(map[uint64]*webRTCPeerManager, 2),
-		sdpSignalingCh: make(chan sdpSignalingRequest, 10),
-		iceSignalingCh: make(chan iceSignalingRequest, 10),
+type mockSignalingClient struct {
+	peerMngr *webRTCPeerManager
+	sdpCh    chan sdpSignalingRequest
+	iceCh    chan iceSignalingRequest
+}
+
+type mockSignalingServer struct {
+	clients map[uint64]*mockSignalingClient
+}
+
+func newMockSignalingServer(t *testing.T, clients map[uint64]*webRTCPeerManager) *mockSignalingServer {
+	server := &mockSignalingServer{
+		clients: make(map[uint64]*mockSignalingClient),
 	}
 
-	go func() {
-		for {
-			select {
-			case sdpReq := <-mngr.sdpSignalingCh:
-				{
-					t.Logf("signaling SDP from %d to %d", sdpReq.from, sdpReq.to)
+	for clientID, client := range clients {
+		t.Logf("preparing signaling loop for client %d", clientID)
+		sdpCh := make(chan sdpSignalingRequest, 32)
+		iceCh := make(chan iceSignalingRequest, 32)
 
-					switch sdpReq.sdp.Type {
-					case webrtc.SDPTypeOffer:
-						{
-							targetClient, exists := mngr.clients[sdpReq.to]
-							if !exists {
-								t.Errorf("client %d tried to send SDP offer to nonexistent client: %d", sdpReq.from, sdpReq.to)
+		server.clients[clientID] = &mockSignalingClient{client, sdpCh, iceCh}
+
+		go func() {
+			t.Logf("started signaling loop for client %d", clientID)
+			for {
+				select {
+				case sdpReq := <-sdpCh:
+					{
+						t.Logf("signaling SDP from %d to %d", clientID, sdpReq.to)
+
+						switch sdpReq.sdp.Type {
+						case webrtc.SDPTypeOffer:
+							{
+								targetClient, exists := server.clients[sdpReq.to]
+								if !exists {
+									t.Errorf("client %d tried to send SDP offer to nonexistent client: %d", clientID, sdpReq.to)
+								}
+
+								targetClient.peerMngr.handleSDPOffer(clientID, sdpReq.sdp)
 							}
+						case webrtc.SDPTypeAnswer:
+							{
+								targetClient, exists := server.clients[sdpReq.to]
+								if !exists {
+									t.Errorf("client %d tried to send signaling message to nonexistent client: %d", clientID, sdpReq.to)
+								}
 
-							targetClient.handleSDPOffer(sdpReq.from, sdpReq.sdp)
+								targetConn, exists := targetClient.peerMngr.connections[clientID]
+								if !exists {
+									t.Errorf("client %d tried to send signaling message to client %d but they were not expecting a message", clientID, sdpReq.to)
+								}
+
+								targetConn.conn.SetRemoteDescription(sdpReq.sdp)
+							}
 						}
-					case webrtc.SDPTypeAnswer:
-						{
-							targetClient, exists := mngr.clients[sdpReq.to]
-							if !exists {
-								t.Errorf("client %d tried to send signaling message to nonexistent client: %d", sdpReq.from, sdpReq.to)
-							}
 
-							targetConn, exists := targetClient.connections[sdpReq.from]
-							if !exists {
-								t.Errorf("client %d tried to send signaling message to client %d but they were not expecting a message", sdpReq.from, sdpReq.to)
-							}
+					}
 
-							targetConn.conn.SetRemoteDescription(sdpReq.sdp)
+				case iceReq := <-iceCh:
+					{
+						t.Logf("signaling ICE candidate from %d to %d", clientID, iceReq.to)
+						candidate := webrtc.ICECandidateInit{Candidate: iceReq.iceCandidate.ToJSON().Candidate}
+
+						targetClient, exists := server.clients[iceReq.to]
+
+						if !exists {
+							t.Logf("client %d tried to send an ICE candidate to a nonexistent client: %d", clientID, iceReq.to)
 						}
+
+						targetConn, exists := targetClient.peerMngr.connections[clientID]
+						if !exists {
+							t.Errorf("client %d tried to send an ICE candidate to client %d but they were not expecting one", clientID, iceReq.to)
+						}
+						targetConn.conn.AddICECandidate(candidate)
 					}
-
-				}
-
-			case iceReq := <-mngr.iceSignalingCh:
-				{
-					t.Logf("signaling ICE candidate from %d to %d", iceReq.from, iceReq.to)
-					candidate := webrtc.ICECandidateInit{Candidate: iceReq.iceCandidate.ToJSON().Candidate}
-
-					targetClient, exists := mngr.clients[iceReq.to]
-
-					if !exists {
-						t.Logf("client %d tried to send an ICE candidate to a nonexistent client: %d", iceReq.from, iceReq.to)
-					}
-
-					targetConn, exists := targetClient.connections[iceReq.from]
-					if !exists {
-						t.Errorf("client %d tried to send an ICE candidate to client %d but they were not expecting one", iceReq.from, iceReq.to)
-					}
-					targetConn.conn.AddICECandidate(candidate)
 				}
 			}
-		}
-	}()
+		}()
 
-	return mngr
+		client.sdpCh = sdpCh
+		client.iceCh = iceCh
+	}
+
+	return server
 }

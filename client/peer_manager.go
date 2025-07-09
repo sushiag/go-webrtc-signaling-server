@@ -8,12 +8,16 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-func newPeerManager(signalingMngr *signalingManager, clientID uint64) *webRTCPeerManager {
+func newPeerManager(
+	sdpSignalingCh chan<- sdpSignalingRequest,
+	iceSignalingCh chan<- iceSignalingRequest,
+	clientID uint64,
+) *webRTCPeerManager {
 	return &webRTCPeerManager{
 		clientID:     clientID,
 		connections:  make(map[uint64]*pendingPeerConnection, 4),
-		sdpCh:        signalingMngr.sdpSignalingCh,
-		iceCh:        signalingMngr.iceSignalingCh,
+		sdpCh:        sdpSignalingCh,
+		iceCh:        iceSignalingCh,
 		dataChOpened: make(chan uint64, 4),
 		msgOutCh:     make(chan WebRTCMsg, 30),
 	}
@@ -54,9 +58,8 @@ func (pm *webRTCPeerManager) newPeerOffer(peerID uint64) {
 	}
 
 	pm.sdpCh <- sdpSignalingRequest{
-		pm.clientID,
-		peerID,
-		offer,
+		to:  peerID,
+		sdp: offer,
 	}
 }
 
@@ -118,7 +121,6 @@ func (pm *webRTCPeerManager) handleSDPOffer(peerID uint64, offer webrtc.SessionD
 	}
 
 	pm.sdpCh <- sdpSignalingRequest{
-		pm.clientID,
 		peerID,
 		answer,
 	}
@@ -149,9 +151,8 @@ func preparePeerConnCallbacks(clientID uint64, peerID uint64, iceSignalingCh cha
 		log.Printf("[INFO] client %d: ice candidate for %d acquired", clientID, peerID)
 
 		iceSignalingCh <- iceSignalingRequest{
-			clientID,
-			peerID,
-			iceCandidate,
+			to:           peerID,
+			iceCandidate: iceCandidate,
 		}
 	})
 

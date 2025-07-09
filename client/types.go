@@ -12,11 +12,10 @@ type WebRTCMsg struct {
 }
 
 type webRTCPeerManager struct {
-	clientID    uint64
-	connections map[uint64]*pendingPeerConnection
-	sdpCh       chan<- sdpSignalingRequest
-	iceCh       chan<- iceSignalingRequest
-	// TODO: make these public
+	clientID     uint64
+	connections  map[uint64]*pendingPeerConnection
+	sdpCh        chan<- sdpSignalingRequest
+	iceCh        chan<- iceSignalingRequest
 	dataChOpened chan uint64
 	msgOutCh     chan WebRTCMsg
 }
@@ -38,15 +37,13 @@ type signalingManager struct {
 }
 
 type iceSignalingRequest struct {
-	from         uint64
 	to           uint64
 	iceCandidate *webrtc.ICECandidate
 }
 
 type sdpSignalingRequest struct {
-	from uint64
-	to   uint64
-	sdp  webrtc.SessionDescription
+	to  uint64
+	sdp webrtc.SessionDescription
 }
 
 var defaultWebRTCConfig = webrtc.Configuration{
