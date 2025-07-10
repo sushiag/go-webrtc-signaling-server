@@ -8,35 +8,32 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-func newPeerManager(
-	sdpSignalingCh chan<- sdpSignalingRequest,
-	iceSignalingCh chan<- iceSignalingRequest,
-	clientID uint64,
-) *webRTCPeerManager {
-	return &webRTCPeerManager{
-		clientID:     clientID,
+func newPeerManager(eventOutCh chan<- Event) *peerManager {
+	pm := &peerManager{
 		connections:  make(map[uint64]*pendingPeerConnection, 4),
-		sdpCh:        sdpSignalingCh,
-		iceCh:        iceSignalingCh,
-		dataChOpened: make(chan uint64, 4),
+		sdpCh:        make(chan sendSDP, 32),
+		iceCh:        make(chan sendICECandidate, 32),
 		msgOutCh:     make(chan WebRTCMsg, 30),
+		peerEventsCh: eventOutCh,
 	}
+
+	return pm
 }
 
-func (pm *webRTCPeerManager) newPeerOffer(peerID uint64) {
-	log.Printf("[DEBUG] peer %d: creating SDP offer for %d", pm.clientID, peerID)
+func (pm *peerManager) newPeerOffer(peerID uint64) {
+	log.Printf("[DEBUG] creating SDP offer for %d", peerID)
 
-	conn, err := preparePeerConnCallbacks(pm.clientID, peerID, pm.iceCh)
+	conn, err := preparePeerConnCallbacks(peerID, pm.iceCh, pm.peerEventsCh)
 	if err != nil {
-		log.Fatalf("[ERROR] client %d: failed to create a new peer connection for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to create a new peer connection for %d: %v", peerID, err)
 	}
 
 	// Prepare data channel with callbacks
 	dataCh, err := conn.CreateDataChannel("data", nil)
 	if err != nil {
-		log.Fatalf("[ERROR] client %d: failed to prepare the data channel for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to prepare the data channel for %d: %v", peerID, err)
 	}
-	prepareDataChCallbacks(pm.clientID, peerID, dataCh, pm.dataChOpened, pm.msgOutCh)
+	prepareDataChCallbacks(peerID, dataCh, pm.peerEventsCh, pm.msgOutCh)
 
 	pendingConn := &pendingPeerConnection{
 		conn,
@@ -49,21 +46,21 @@ func (pm *webRTCPeerManager) newPeerOffer(peerID uint64) {
 	// Send Offer
 	offer, err := conn.CreateOffer(nil)
 	if err != nil {
-		log.Fatalf("[ERROR] client %d: failed to create SDP offer for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to create SDP offer for %d: %v", peerID, err)
 	}
 
 	// NOTE: this will start the UDP listeners and gathering of ICE candidates
 	if err := conn.SetLocalDescription(offer); err != nil {
-		log.Fatalf("[ERROR] client %d: failed to set local description for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to set local description for %d: %v", peerID, err)
 	}
 
-	pm.sdpCh <- sdpSignalingRequest{
+	pm.sdpCh <- sendSDP{
 		to:  peerID,
 		sdp: offer,
 	}
 }
 
-func (pm *webRTCPeerManager) sendMsgToPeer(peerID uint64, msg string) error {
+func (pm *peerManager) sendMsgToPeer(peerID uint64, msg string) error {
 	conn, exists := pm.connections[peerID]
 	if !exists {
 		return fmt.Errorf("tried to send message to an unknown peer")
@@ -82,16 +79,16 @@ func (pm *webRTCPeerManager) sendMsgToPeer(peerID uint64, msg string) error {
 	return nil
 }
 
-func (pm *webRTCPeerManager) handleSDPOffer(peerID uint64, offer webrtc.SessionDescription) {
-	log.Printf("[INFO] client %d: handling SDP offer from %d", pm.clientID, peerID)
+func (pm *peerManager) handleSDPOffer(peerID uint64, offer webrtc.SessionDescription) {
+	log.Printf("[DEBUG] handling SDP offer from %d", peerID)
 
-	conn, err := preparePeerConnCallbacks(pm.clientID, peerID, pm.iceCh)
+	conn, err := preparePeerConnCallbacks(peerID, pm.iceCh, pm.peerEventsCh)
 	if err != nil {
-		log.Fatalf("[ERROR] client %d: failed to create new peer connection for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to create new peer connection for %d: %v", peerID, err)
 	}
 
 	if err != nil {
-		log.Fatalf("[ERROR] client %d: failed to create a new data channel for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to create a new data channel for %d: %v", peerID, err)
 	}
 
 	pendingConn := &pendingPeerConnection{
@@ -103,24 +100,24 @@ func (pm *webRTCPeerManager) handleSDPOffer(peerID uint64, offer webrtc.SessionD
 	}
 
 	conn.OnDataChannel(func(dataCh *webrtc.DataChannel) {
-		prepareDataChCallbacks(pm.clientID, peerID, dataCh, pm.dataChOpened, pm.msgOutCh)
+		prepareDataChCallbacks(peerID, dataCh, pm.peerEventsCh, pm.msgOutCh)
 		pendingConn.dataChannel = dataCh
 	})
 
 	if err := conn.SetRemoteDescription(offer); err != nil {
-		log.Fatalf("[ERROR] client %d: failed to set remote description for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to set remote description for %d: %v", peerID, err)
 	}
 
 	answer, err := conn.CreateAnswer(nil)
 	if err != nil {
-		log.Fatalf("[ERROR] client %d: failed to create SDP answer for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to create SDP answer for %d: %v", peerID, err)
 	}
 
 	if err := conn.SetLocalDescription(answer); err != nil {
-		log.Fatalf("[ERROR] client %d: failed to set local description for %d: %v", pm.clientID, peerID, err)
+		log.Fatalf("[ERROR] failed to set local description for %d: %v", peerID, err)
 	}
 
-	pm.sdpCh <- sdpSignalingRequest{
+	pm.sdpCh <- sendSDP{
 		peerID,
 		answer,
 	}
@@ -128,19 +125,19 @@ func (pm *webRTCPeerManager) handleSDPOffer(peerID uint64, offer webrtc.SessionD
 	pm.connections[peerID] = pendingConn
 }
 
-func preparePeerConnCallbacks(clientID uint64, peerID uint64, iceSignalingCh chan<- iceSignalingRequest) (*webrtc.PeerConnection, error) {
+func preparePeerConnCallbacks(peerID uint64, iceSignalingCh chan<- sendICECandidate, peerEventCh chan<- Event) (*webrtc.PeerConnection, error) {
 	conn, err := webrtc.NewPeerConnection(defaultWebRTCConfig)
 	if err != nil {
 		return conn, err
 	}
 
 	conn.OnICEGatheringStateChange(func(state webrtc.ICEGatheringState) {
-
-		log.Printf("[INFO] client %d: ice gathering state for %d changed to: %s", clientID, peerID, state.String())
+		log.Printf("[DEBUG] ice gathering state for %d changed to: %s", peerID, state.String())
 	})
 
 	conn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("[INFO] client %d: connection state for %d changed to: %s", clientID, peerID, state.String())
+		log.Printf("[DEBUG] connection state for %d changed to: %s", peerID, state.String())
+		peerEventCh <- PeerConnectionStateChangedEvent{state}
 	})
 
 	conn.OnICECandidate(func(iceCandidate *webrtc.ICECandidate) {
@@ -148,9 +145,9 @@ func preparePeerConnCallbacks(clientID uint64, peerID uint64, iceSignalingCh cha
 			return
 		}
 
-		log.Printf("[INFO] client %d: ice candidate for %d acquired", clientID, peerID)
+		log.Printf("[DEBUG] ice candidate for %d acquired", peerID)
 
-		iceSignalingCh <- iceSignalingRequest{
+		iceSignalingCh <- sendICECandidate{
 			to:           peerID,
 			iceCandidate: iceCandidate,
 		}
@@ -159,23 +156,23 @@ func preparePeerConnCallbacks(clientID uint64, peerID uint64, iceSignalingCh cha
 	return conn, nil
 }
 
-func prepareDataChCallbacks(clientID uint64, peerID uint64, dataCh *webrtc.DataChannel, dataChOpened chan<- uint64, dataChOut chan<- WebRTCMsg) {
+func prepareDataChCallbacks(peerID uint64, dataCh *webrtc.DataChannel, peerEventsCh chan<- Event, dataChOut chan<- WebRTCMsg) {
 	dataCh.OnOpen(func() {
-		log.Printf("[INFO] client %d: data channel for %d opened", clientID, peerID)
-		dataChOpened <- peerID
+		log.Printf("[DEBUG] data channel for %d opened", peerID)
+		peerEventsCh <- PeerDataChOpenedEvent{peerID}
 	})
 
 	dataCh.OnClose(func() {
-		log.Printf("[INFO] client %d: data channel from %d was closed", clientID, peerID)
+		log.Printf("[DEBUG] data channel from %d was closed", peerID)
+		peerEventsCh <- PeerDataChClosedEvent{peerID}
 	})
 
 	dataCh.OnError(func(err error) {
-		log.Printf("[ERROR] client %d: failed to read data from %d", clientID, peerID)
-
+		log.Printf("[ERROR] failed to read data from %d", peerID)
 	})
 
 	dataCh.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Printf("[INFO] client %d: received data from %d: %s", clientID, peerID, string(msg.Data))
+		log.Printf("[DEBUG] received data from %d: %s", peerID, string(msg.Data))
 		dataChOut <- WebRTCMsg{
 			from: peerID,
 			msg:  string(msg.Data),

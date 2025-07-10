@@ -32,7 +32,8 @@ type JoinRoomPayload struct {
 }
 
 type RoomJoinedPayload struct {
-	RoomID uint64 `json:"room_id"`
+	RoomID        uint64   `json:"room_id"`
+	ClientsInRoom []uint64 `json:"clients"`
 }
 
 type SDPPayload struct {

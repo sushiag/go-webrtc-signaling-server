@@ -8,18 +8,23 @@ import (
 	sm "signaling-msgs"
 )
 
+type Client struct {
+	signalingMngr *signalingManager
+	eventsCh      <-chan Event
+}
+
 type WebRTCMsg struct {
 	from uint64
 	msg  string
 }
 
-type webRTCPeerManager struct {
-	clientID     uint64
+// Handles WebRTC Peers
+type peerManager struct {
 	connections  map[uint64]*pendingPeerConnection
-	sdpCh        chan<- sdpSignalingRequest
-	iceCh        chan<- iceSignalingRequest
-	dataChOpened chan uint64
+	sdpCh        chan sendSDP
+	iceCh        chan sendICECandidate
 	msgOutCh     chan WebRTCMsg
+	peerEventsCh chan<- Event
 }
 
 type pendingPeerConnection struct {
@@ -30,20 +35,18 @@ type pendingPeerConnection struct {
 }
 
 type signalingManager struct {
-	clients          map[uint64]*webRTCPeerManager
-	sdpSignalingCh   chan sdpSignalingRequest
-	iceSignalingCh   chan iceSignalingRequest
-	wsClientID       uint64
-	wsSendCh         chan<- sm.Message
-	signalingEventCh <-chan SignalingEvent
+	clients    map[uint64]*peerManager
+	wsClientID uint64
+	// Channel for sending commands to the server
+	wsSendCh chan<- sm.Message
 }
 
-type iceSignalingRequest struct {
+type sendICECandidate struct {
 	to           uint64
 	iceCandidate *webrtc.ICECandidate
 }
 
-type sdpSignalingRequest struct {
+type sendSDP struct {
 	to  uint64
 	sdp webrtc.SessionDescription
 }

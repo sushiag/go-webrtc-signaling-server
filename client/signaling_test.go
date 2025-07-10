@@ -32,7 +32,7 @@ func TestSignalingRespondToPings(t *testing.T) {
 	}
 	wsEndpoint, serverDoneCh := startMockServer(t, testApiKey, expectedFlow)
 
-	mngr, err := newSignalingManager(wsEndpoint, testApiKey)
+	mngr, err := newSignalingManager(wsEndpoint, testApiKey, nil, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(100), mngr.wsClientID)
 	t.Log("signaling manager created")
@@ -66,7 +66,8 @@ func TestSignalingCreateRoom(t *testing.T) {
 	}
 	wsEndpoint, serverDoneCh := startMockServer(t, testApiKey, expectedFlow)
 
-	mngr, err := newSignalingManager(wsEndpoint, testApiKey)
+	eventOutCh := make(chan Event)
+	mngr, err := newSignalingManager(wsEndpoint, testApiKey, nil, eventOutCh)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(100), mngr.wsClientID)
 	t.Log("signaling manager created")
@@ -78,7 +79,7 @@ func TestSignalingCreateRoom(t *testing.T) {
 		{
 			t.Error("server did not respond in time")
 		}
-	case resp := <-mngr.signalingEventCh:
+	case resp := <-eventOutCh:
 		{
 			assert.Equal(t,
 				RoomCreatedEvent{RoomID: 5},
@@ -111,15 +112,17 @@ func TestSignalingJoinRoom(t *testing.T) {
 			},
 			toSend: &sm.Message{
 				MsgType: sm.RoomJoined,
-				Payload: sm.ToRawMessagePayload(RoomJoinedEvent{
-					RoomID: uint64(10),
+				Payload: sm.ToRawMessagePayload(sm.RoomJoinedPayload{
+					RoomID:        uint64(10),
+					ClientsInRoom: []uint64{3, 6, 9},
 				}),
 			},
 		},
 	}
 	wsEndpoint, serverDoneCh := startMockServer(t, testApiKey, expectedFlow)
 
-	mngr, err := newSignalingManager(wsEndpoint, testApiKey)
+	eventOutCh := make(chan Event, 8)
+	mngr, err := newSignalingManager(wsEndpoint, testApiKey, nil, eventOutCh)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(100), mngr.wsClientID)
 	t.Log("signaling manager created")
@@ -131,10 +134,13 @@ func TestSignalingJoinRoom(t *testing.T) {
 		{
 			t.Error("server did not respond in time")
 		}
-	case resp := <-mngr.signalingEventCh:
+	case resp := <-eventOutCh:
 		{
 			assert.Equal(t,
-				RoomJoinedEvent{},
+				RoomJoinedEvent{
+					RoomID:        uint64(10),
+					ClientsInRoom: []uint64{3, 6, 9},
+				},
 				resp,
 			)
 		}

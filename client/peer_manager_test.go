@@ -11,33 +11,69 @@ import (
 )
 
 type mockSignalingManager struct {
-	clients        map[uint64]*webRTCPeerManager
-	sdpSignalingCh chan sdpSignalingRequest
-	iceSignalingCh chan iceSignalingRequest
+	clients        map[uint64]*peerManager
+	sdpSignalingCh chan sendSDP
+	iceSignalingCh chan sendICECandidate
 }
 
 var mockSignaler = &signalingManager{
-	clients:        make(map[uint64]*webRTCPeerManager, 2),
-	sdpSignalingCh: make(chan sdpSignalingRequest, 10),
-	iceSignalingCh: make(chan iceSignalingRequest, 10),
+	clients: make(map[uint64]*peerManager, 2),
 }
 
 func TestPeerManager(t *testing.T) {
-	pm1 := newPeerManager(nil, nil, 1)
-	pm2 := newPeerManager(nil, nil, 2)
-	clients := map[uint64]*webRTCPeerManager{
-		pm1.clientID: pm1,
-		pm2.clientID: pm2,
+	pm1EventsCh := make(chan Event, 8)
+	pm2EventsCh := make(chan Event, 8)
+	clientID1 := uint64(1)
+	clientID2 := uint64(2)
+	pm1 := newPeerManager(pm1EventsCh)
+	pm2 := newPeerManager(pm2EventsCh)
+	clients := map[uint64]*peerManager{
+		clientID1: pm1,
+		clientID2: pm2,
 	}
 
 	newMockSignalingServer(t, clients)
 
-	pm1.newPeerOffer(pm2.clientID)
+	pm1.newPeerOffer(clientID2)
 
-	openedCh1 := <-pm1.dataChOpened
-	t.Logf("data channel for %d opened", openedCh1)
-	openedCh2 := <-pm2.dataChOpened
-	t.Logf("data channel for %d opened", openedCh2)
+	dataChannelsOpened := 0
+	deadline := time.After(time.Second * 3)
+	var openedCh1 uint64
+	var openedCh2 uint64
+	for dataChannelsOpened < 2 {
+		select {
+		case ev := <-pm1EventsCh:
+			{
+				switch v := ev.(type) {
+				case PeerDataChOpenedEvent:
+					{
+						if assert.Equalf(t, clientID2, v.PeerID, "client %d should be opening a data channel for client %d", clientID1, clientID2) {
+							dataChannelsOpened += 1
+							t.Logf("data channel for %d opened", v.PeerID)
+							openedCh1 = v.PeerID
+						}
+					}
+				}
+			}
+		case ev := <-pm2EventsCh:
+			{
+				switch v := ev.(type) {
+				case PeerDataChOpenedEvent:
+					{
+						if assert.Equalf(t, clientID1, v.PeerID, "client %d should be opening a data channel for client %d", clientID2, clientID1) {
+							dataChannelsOpened += 1
+							t.Logf("data channel for %d opened", v.PeerID)
+							openedCh2 = v.PeerID
+						}
+					}
+				}
+			}
+		case <-deadline:
+			{
+				t.Fatal("peers took too long to open their data channels")
+			}
+		}
+	}
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
@@ -46,7 +82,7 @@ func TestPeerManager(t *testing.T) {
 
 	// Sending from pm1 -> pm2
 	go func() {
-		t.Logf("client %d: loop started", pm1.clientID)
+		t.Logf("client %d: loop started", clientID1)
 		msgsReceived := make([]string, 0)
 		msgsSent := 0
 
@@ -57,7 +93,7 @@ func TestPeerManager(t *testing.T) {
 			// Message receiving
 			case msg := <-pm1.msgOutCh:
 				{
-					assert.Equal(t, msg.from, openedCh1, "the 'from' field of the received message by client %d is wrong", pm1.clientID)
+					assert.Equal(t, msg.from, openedCh1, "the 'from' field of the received message by client %d is wrong", clientID1)
 					msgsReceived = append(msgsReceived, msg.msg)
 
 					isReceivingMsgs = len(msgsReceived) < msgsToSend
@@ -73,9 +109,9 @@ func TestPeerManager(t *testing.T) {
 						msg := fmt.Sprintf("%d", msgsSent+1)
 						err := pm1.sendMsgToPeer(openedCh1, msg)
 						if err != nil {
-							t.Logf("[ERROR] client %d: failed to send message to %d: %v", pm1.clientID, openedCh1, err)
+							t.Logf("[ERROR] client %d: failed to send message to %d: %v", clientID1, openedCh1, err)
 						} else {
-							t.Logf("client %d: sent message to %d", pm1.clientID, openedCh1)
+							t.Logf("client %d: sent message to %d", clientID1, openedCh1)
 						}
 						msgsSent += 1
 
@@ -88,16 +124,16 @@ func TestPeerManager(t *testing.T) {
 		}
 
 		expectedMsgs := []string{"5", "4", "3", "2", "1"}
-		assert.Equal(t, expectedMsgs, msgsReceived, "the received messages by client %d were wrong", pm1.clientID)
-		assert.Equal(t, msgsToSend, msgsSent, "client %d did not send enough messages", pm1.clientID)
+		assert.Equal(t, expectedMsgs, msgsReceived, "the received messages by client %d were wrong", clientID1)
+		assert.Equal(t, msgsToSend, msgsSent, "client %d did not send enough messages", clientID1)
 
-		t.Logf("client %d: loop ended", pm1.clientID)
+		t.Logf("client %d: loop ended", clientID1)
 		wg.Done()
 	}()
 
 	// Sending from pm2 -> pm1
 	go func() {
-		t.Logf("client %d: loop started", pm2.clientID)
+		t.Logf("client %d: loop started", clientID2)
 		msgsReceived := make([]string, 0)
 		msgsSent := 0
 
@@ -109,7 +145,7 @@ func TestPeerManager(t *testing.T) {
 			// Message receiving
 			case msg := <-pm2.msgOutCh:
 				{
-					assert.Equal(t, openedCh2, msg.from, "the 'from' field of the received message by client %d is wrong", pm2.clientID)
+					assert.Equal(t, openedCh2, msg.from, "the 'from' field of the received message by client %d is wrong", clientID2)
 					msgsReceived = append(msgsReceived, msg.msg)
 
 					isReceivingMsgs = len(msgsReceived) < msgsToSend
@@ -125,9 +161,9 @@ func TestPeerManager(t *testing.T) {
 						msg := fmt.Sprintf("%d", msgsToSend-msgsSent)
 						err := pm2.sendMsgToPeer(openedCh2, msg)
 						if err != nil {
-							t.Errorf("client %d: failed to send message to %d: %v", pm2.clientID, openedCh2, err)
+							t.Errorf("client %d: failed to send message to %d: %v", clientID2, openedCh2, err)
 						} else {
-							t.Logf("client %d: sent message to %d", pm1.clientID, openedCh2)
+							t.Logf("client %d: sent message to %d", clientID2, openedCh2)
 						}
 						msgsSent += 1
 
@@ -140,43 +176,33 @@ func TestPeerManager(t *testing.T) {
 		}
 
 		expectedMsgs := []string{"1", "2", "3", "4", "5"}
-		assert.Equal(t, expectedMsgs, msgsReceived, "the received messages by client %d were wrong", pm2.clientID)
-		assert.Equal(t, msgsToSend, msgsSent, "client %d did not send enough messages", pm2.clientID)
+		assert.Equal(t, expectedMsgs, msgsReceived, "the received messages by client %d were wrong", clientID2)
+		assert.Equal(t, msgsToSend, msgsSent, "client %d did not send enough messages", clientID2)
 
-		t.Logf("client %d: loop ended", pm2.clientID)
+		t.Logf("client %d: loop ended", clientID2)
 		wg.Done()
 	}()
 
 	wg.Wait()
 }
 
-type mockSignalingClient struct {
-	peerMngr *webRTCPeerManager
-	sdpCh    chan sdpSignalingRequest
-	iceCh    chan iceSignalingRequest
-}
-
 type mockSignalingServer struct {
-	clients map[uint64]*mockSignalingClient
+	clients map[uint64]*peerManager
 }
 
-func newMockSignalingServer(t *testing.T, clients map[uint64]*webRTCPeerManager) *mockSignalingServer {
+func newMockSignalingServer(t *testing.T, clients map[uint64]*peerManager) *mockSignalingServer {
 	server := &mockSignalingServer{
-		clients: make(map[uint64]*mockSignalingClient),
+		clients: clients,
 	}
 
 	for clientID, client := range clients {
 		t.Logf("preparing signaling loop for client %d", clientID)
-		sdpCh := make(chan sdpSignalingRequest, 32)
-		iceCh := make(chan iceSignalingRequest, 32)
-
-		server.clients[clientID] = &mockSignalingClient{client, sdpCh, iceCh}
 
 		go func() {
 			t.Logf("started signaling loop for client %d", clientID)
 			for {
 				select {
-				case sdpReq := <-sdpCh:
+				case sdpReq := <-client.sdpCh:
 					{
 						t.Logf("signaling SDP from %d to %d", clientID, sdpReq.to)
 
@@ -188,7 +214,7 @@ func newMockSignalingServer(t *testing.T, clients map[uint64]*webRTCPeerManager)
 									t.Errorf("client %d tried to send SDP offer to nonexistent client: %d", clientID, sdpReq.to)
 								}
 
-								targetClient.peerMngr.handleSDPOffer(clientID, sdpReq.sdp)
+								targetClient.handleSDPOffer(clientID, sdpReq.sdp)
 							}
 						case webrtc.SDPTypeAnswer:
 							{
@@ -197,7 +223,7 @@ func newMockSignalingServer(t *testing.T, clients map[uint64]*webRTCPeerManager)
 									t.Errorf("client %d tried to send signaling message to nonexistent client: %d", clientID, sdpReq.to)
 								}
 
-								targetConn, exists := targetClient.peerMngr.connections[clientID]
+								targetConn, exists := targetClient.connections[clientID]
 								if !exists {
 									t.Errorf("client %d tried to send signaling message to client %d but they were not expecting a message", clientID, sdpReq.to)
 								}
@@ -208,7 +234,7 @@ func newMockSignalingServer(t *testing.T, clients map[uint64]*webRTCPeerManager)
 
 					}
 
-				case iceReq := <-iceCh:
+				case iceReq := <-client.iceCh:
 					{
 						t.Logf("signaling ICE candidate from %d to %d", clientID, iceReq.to)
 						candidate := webrtc.ICECandidateInit{Candidate: iceReq.iceCandidate.ToJSON().Candidate}
@@ -219,7 +245,7 @@ func newMockSignalingServer(t *testing.T, clients map[uint64]*webRTCPeerManager)
 							t.Logf("client %d tried to send an ICE candidate to a nonexistent client: %d", clientID, iceReq.to)
 						}
 
-						targetConn, exists := targetClient.peerMngr.connections[clientID]
+						targetConn, exists := targetClient.connections[clientID]
 						if !exists {
 							t.Errorf("client %d tried to send an ICE candidate to client %d but they were not expecting one", clientID, iceReq.to)
 						}
@@ -228,9 +254,6 @@ func newMockSignalingServer(t *testing.T, clients map[uint64]*webRTCPeerManager)
 				}
 			}
 		}()
-
-		client.sdpCh = sdpCh
-		client.iceCh = iceCh
 	}
 
 	return server

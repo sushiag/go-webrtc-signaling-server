@@ -9,26 +9,15 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	sm "signaling-msgs"
+	smsg "signaling-msgs"
 )
 
-type SignalingEvent any
-
-type RoomCreatedEvent struct {
-	RoomID uint64
-}
-
-type RoomJoinedEvent struct {
-	RoomID uint64
-}
-
-func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, error) {
+func newSignalingManager(wsEndpoint string, apiKey string, pm *peerManager, eventsCh chan<- Event) (*signalingManager, error) {
 	mngr := &signalingManager{
-		clients:        make(map[uint64]*webRTCPeerManager, 2),
-		sdpSignalingCh: make(chan sdpSignalingRequest, 10),
-		iceSignalingCh: make(chan iceSignalingRequest, 10),
+		clients: make(map[uint64]*peerManager, 2),
 	}
 
+	// connect to the WS endpoint
 	headers := http.Header{"X-Api-Key": []string{apiKey}}
 	wsConn, resp, err := websocket.DefaultDialer.Dial(wsEndpoint, headers)
 	if err != nil {
@@ -36,6 +25,7 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 		return nil, err
 	}
 
+	// store the WS Client ID
 	clientIDStr := resp.Header.Get("X-Client-ID")
 	clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
 	if err != nil {
@@ -43,56 +33,74 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 	}
 	mngr.wsClientID = clientID
 
-	wsSendCh := make(chan sm.Message, 32)
-	signalingEventCh := make(chan SignalingEvent, 32)
+	wsSendCh := make(chan smsg.Message, 32) // WS output channel
 
 	// WS read loop
 	go func() {
 		for {
-			var msg sm.Message
+			var msg smsg.Message
 			err := wsConn.ReadJSON(&msg)
 			if err != nil {
 				log.Printf("[ERROR] failed to read incoming WS message: %v", err)
 			}
-			log.Printf("[DEBUG] received WS message with type: '%d'", msg.MsgType)
+			log.Printf("[DEBUG] received WS message with type: '%s'", msg.MsgType.AsString())
 
 			switch msg.MsgType {
-			case sm.Ping:
+			case smsg.Ping:
 				{
-					log.Printf("[INFO] got ping from server!")
-					wsSendCh <- sm.Message{MsgType: sm.Pong}
+					log.Printf("[DEBUG] got ping from server")
+					wsSendCh <- smsg.Message{MsgType: smsg.Pong}
+					eventsCh <- ServerPingEvent{}
 				}
-			case sm.Pong:
+			case smsg.Pong:
 				{
-					log.Printf("[INFO] got pong from server!")
+					log.Printf("[DEBUG] got pong from server!")
+					eventsCh <- ServerPongEvent{}
 				}
-			case sm.RoomCreated:
+			case smsg.RoomCreated:
 				{
-					var payload sm.RoomCreatedPayload
+					var payload smsg.RoomCreatedPayload
 					err := json.Unmarshal(msg.Payload, &payload)
 					if err != nil {
 						log.Printf("[ERROR] failed to unmarshal RoomCreated message payload: %v", err)
-						continue
+						return
 					}
 
-					signalingEventCh <- RoomCreatedEvent{RoomID: payload.RoomID}
+					eventsCh <- RoomCreatedEvent{RoomID: payload.RoomID}
 				}
-			case sm.RoomJoined:
+			case smsg.RoomJoined:
 				{
-					var payload sm.RoomJoinedPayload
+					var payload smsg.RoomJoinedPayload
 					err := json.Unmarshal(msg.Payload, &payload)
 					if err != nil {
 						log.Printf("[ERROR] failed to unmarshal RoomJoined message payload: %v", err)
-						continue
+						return
 					}
 
-					signalingEventCh <- RoomJoinedEvent{RoomID: payload.RoomID}
+					// tell the peer manager to make an offer
+					if pm != nil {
+						for _, clientID := range payload.ClientsInRoom {
+							pm.newPeerOffer(clientID)
+						}
+					}
+
+					eventsCh <- RoomJoinedEvent{RoomID: payload.RoomID, ClientsInRoom: payload.ClientsInRoom}
+				}
+			default:
+				{
+					log.Printf("[WARN] unhandled message type: '%s'", msg.MsgType.AsString())
 				}
 			}
 		}
 	}()
 
 	// WS send loop
+	var sdpCh <-chan sendSDP
+	var iceCh <-chan sendICECandidate
+	if pm != nil {
+		sdpCh = pm.sdpCh
+		iceCh = pm.iceCh
+	}
 	go func() {
 		for {
 			select {
@@ -103,11 +111,11 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 						log.Printf("[ERROR] failed to send WS message: %v", err)
 					}
 
-					log.Printf("[DEBUG] sent WS message with type: %d", msgToSend.MsgType)
+					log.Printf("[DEBUG] sent WS message with type: %s", msgToSend.MsgType.AsString())
 				}
-			case sdpReq := <-mngr.sdpSignalingCh:
+			case sdpReq := <-sdpCh:
 				{
-					payload, marshalPayloadErr := json.Marshal(sm.SDPPayload{
+					payload, marshalPayloadErr := json.Marshal(smsg.SDPPayload{
 						SDP: sdpReq.sdp.SDP,
 						For: sdpReq.to,
 					})
@@ -115,8 +123,8 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 						log.Printf("[ERROR] failed to JSON marshal SDP message: %v", marshalPayloadErr)
 					}
 
-					msg := sm.Message{
-						MsgType: sm.SDP,
+					msg := smsg.Message{
+						MsgType: smsg.SDP,
 						Payload: payload,
 					}
 					wsWriteErr := wsConn.WriteJSON(msg)
@@ -126,9 +134,9 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 
 					log.Printf("[DEBUG] sent SDP message")
 				}
-			case iceReq := <-mngr.iceSignalingCh:
+			case iceReq := <-iceCh:
 				{
-					payload, marshalPayloadErr := json.Marshal(sm.ICECandidatePayload{
+					payload, marshalPayloadErr := json.Marshal(smsg.ICECandidatePayload{
 						ICE: iceReq.iceCandidate.ToJSON().Candidate,
 						For: iceReq.to,
 					})
@@ -136,8 +144,8 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 						log.Printf("[ERROR] failed to JSON marshal ICE candidate: %v", marshalPayloadErr)
 					}
 
-					msg := sm.Message{
-						MsgType: sm.SDP,
+					msg := smsg.Message{
+						MsgType: smsg.SDP,
 						Payload: payload,
 					}
 					wsWriteErr := wsConn.WriteJSON(msg)
@@ -152,7 +160,6 @@ func newSignalingManager(wsEndpoint string, apiKey string) (*signalingManager, e
 	}()
 
 	mngr.wsSendCh = wsSendCh
-	mngr.signalingEventCh = signalingEventCh
 
 	return mngr, nil
 }
