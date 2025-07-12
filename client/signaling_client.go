@@ -33,12 +33,12 @@ func newSignalingManager(wsEndpoint string, apiKey string, pm *peerManager, even
 	}
 	mngr.wsClientID = clientID
 
-	wsSendCh := make(chan smsg.Message, 32) // WS output channel
+	wsSendCh := make(chan smsg.MessageAnyPayload, 32) // WS output channel
 
 	// WS read loop
 	go func() {
 		for {
-			var msg smsg.Message
+			var msg smsg.MessageRawJSONPayload
 			err := wsConn.ReadJSON(&msg)
 			if err != nil {
 				log.Printf("[ERROR] failed to read incoming WS message: %v", err)
@@ -49,7 +49,7 @@ func newSignalingManager(wsEndpoint string, apiKey string, pm *peerManager, even
 			case smsg.Ping:
 				{
 					log.Printf("[DEBUG] got ping from server")
-					wsSendCh <- smsg.Message{MsgType: smsg.Pong}
+					wsSendCh <- smsg.MessageAnyPayload{MsgType: smsg.Pong}
 					eventsCh <- ServerPingEvent{}
 				}
 			case smsg.Pong:
@@ -116,14 +116,14 @@ func newSignalingManager(wsEndpoint string, apiKey string, pm *peerManager, even
 			case sdpReq := <-sdpCh:
 				{
 					payload, marshalPayloadErr := json.Marshal(smsg.SDPPayload{
-						SDP: sdpReq.sdp.SDP,
-						For: sdpReq.to,
+						SDP: sdpReq.sdp,
+						To:  sdpReq.to,
 					})
 					if marshalPayloadErr != nil {
 						log.Printf("[ERROR] failed to JSON marshal SDP message: %v", marshalPayloadErr)
 					}
 
-					msg := smsg.Message{
+					msg := smsg.MessageAnyPayload{
 						MsgType: smsg.SDP,
 						Payload: payload,
 					}
@@ -137,14 +137,14 @@ func newSignalingManager(wsEndpoint string, apiKey string, pm *peerManager, even
 			case iceReq := <-iceCh:
 				{
 					payload, marshalPayloadErr := json.Marshal(smsg.ICECandidatePayload{
-						ICE: iceReq.iceCandidate.ToJSON().Candidate,
-						For: iceReq.to,
+						ICE: iceReq.iceCandidate,
+						To:  iceReq.to,
 					})
 					if marshalPayloadErr != nil {
 						log.Printf("[ERROR] failed to JSON marshal ICE candidate: %v", marshalPayloadErr)
 					}
 
-					msg := smsg.Message{
+					msg := smsg.MessageAnyPayload{
 						MsgType: smsg.SDP,
 						Payload: payload,
 					}

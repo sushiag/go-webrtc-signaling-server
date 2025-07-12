@@ -2,13 +2,20 @@ package ws_messages
 
 import (
 	"encoding/json"
+
+	"github.com/pion/webrtc/v4"
 )
 
 type MessageType uint8
 
-type Message struct {
+type MessageAnyPayload struct {
+	MsgType MessageType `json:"type"`
+	Payload any         `json:"payload,omitempty"`
+}
+
+type MessageRawJSONPayload struct {
 	MsgType MessageType     `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 const (
@@ -37,11 +44,13 @@ type RoomJoinedPayload struct {
 }
 
 type SDPPayload struct {
-	SDP string `json:"sdp"`
-	For uint64 `json:"for"`
+	SDP  webrtc.SessionDescription `json:"sdp"`
+	From uint64                    `json:"from,omitempty"`
+	To   uint64                    `json:"to,omitempty"`
 }
 
 type ICECandidatePayload struct {
-	ICE string `json:"ice"`
-	For uint64 `json:"for"`
+	ICE  *webrtc.ICECandidate `json:"ice"`
+	From uint64               `json:"from,omitempty"`
+	To   uint64               `json:"to,omitempty"`
 }

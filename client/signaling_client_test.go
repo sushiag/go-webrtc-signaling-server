@@ -10,7 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 
-	sm "signaling-msgs"
+	smsg "signaling-msgs"
 )
 
 func TestSignalingRespondToPings(t *testing.T) {
@@ -19,13 +19,13 @@ func TestSignalingRespondToPings(t *testing.T) {
 	expectedFlow := []mockMsgFlow{
 		{
 			waitFor: nil,
-			toSend: &sm.Message{
-				MsgType: sm.Ping,
+			toSend: &smsg.MessageRawJSONPayload{
+				MsgType: smsg.Ping,
 			},
 		},
 		{
-			waitFor: &sm.Message{
-				MsgType: sm.Pong,
+			waitFor: &smsg.MessageRawJSONPayload{
+				MsgType: smsg.Pong,
 			},
 			toSend: nil,
 		},
@@ -53,12 +53,12 @@ func TestSignalingCreateRoom(t *testing.T) {
 
 	expectedFlow := []mockMsgFlow{
 		{
-			waitFor: &sm.Message{
-				MsgType: sm.CreateRoom,
+			waitFor: &smsg.MessageRawJSONPayload{
+				MsgType: smsg.CreateRoom,
 			},
-			toSend: &sm.Message{
-				MsgType: sm.RoomCreated,
-				Payload: sm.ToRawMessagePayload(sm.RoomCreatedPayload{
+			toSend: &smsg.MessageRawJSONPayload{
+				MsgType: smsg.RoomCreated,
+				Payload: smsg.ToRawMessagePayload(smsg.RoomCreatedPayload{
 					RoomID: uint64(5),
 				}),
 			},
@@ -72,7 +72,7 @@ func TestSignalingCreateRoom(t *testing.T) {
 	assert.Equal(t, uint64(100), mngr.wsClientID)
 	t.Log("signaling manager created")
 
-	mngr.wsSendCh <- sm.Message{MsgType: sm.CreateRoom}
+	mngr.wsSendCh <- smsg.MessageAnyPayload{MsgType: smsg.CreateRoom}
 
 	select {
 	case <-time.After(time.Second):
@@ -104,15 +104,15 @@ func TestSignalingJoinRoom(t *testing.T) {
 
 	expectedFlow := []mockMsgFlow{
 		{
-			waitFor: &sm.Message{
-				MsgType: sm.JoinRoom,
-				Payload: sm.ToRawMessagePayload(sm.JoinRoomPayload{
+			waitFor: &smsg.MessageRawJSONPayload{
+				MsgType: smsg.JoinRoom,
+				Payload: smsg.ToRawMessagePayload(smsg.JoinRoomPayload{
 					RoomID: uint64(5),
 				}),
 			},
-			toSend: &sm.Message{
-				MsgType: sm.RoomJoined,
-				Payload: sm.ToRawMessagePayload(sm.RoomJoinedPayload{
+			toSend: &smsg.MessageRawJSONPayload{
+				MsgType: smsg.RoomJoined,
+				Payload: smsg.ToRawMessagePayload(smsg.RoomJoinedPayload{
 					RoomID:        uint64(10),
 					ClientsInRoom: []uint64{3, 6, 9},
 				}),
@@ -127,7 +127,7 @@ func TestSignalingJoinRoom(t *testing.T) {
 	assert.Equal(t, uint64(100), mngr.wsClientID)
 	t.Log("signaling manager created")
 
-	mngr.wsSendCh <- sm.Message{MsgType: sm.JoinRoom, Payload: sm.ToRawMessagePayload(sm.JoinRoomPayload{RoomID: 5})}
+	mngr.wsSendCh <- smsg.MessageAnyPayload{MsgType: smsg.JoinRoom, Payload: smsg.ToRawMessagePayload(smsg.JoinRoomPayload{RoomID: 5})}
 
 	select {
 	case <-time.After(time.Second):
@@ -158,8 +158,8 @@ func TestSignalingJoinRoom(t *testing.T) {
 }
 
 type mockMsgFlow struct {
-	waitFor *sm.Message
-	toSend  *sm.Message
+	waitFor *smsg.MessageRawJSONPayload
+	toSend  *smsg.MessageRawJSONPayload
 }
 
 func startMockServer(t *testing.T, apiKey string, msgFlow []mockMsgFlow) (string, chan struct{}) {
@@ -201,7 +201,7 @@ func startMockServer(t *testing.T, apiKey string, msgFlow []mockMsgFlow) (string
 				t.Logf("waiting for client msg: %d", msgNum)
 				conn.SetReadDeadline(time.Now().Add(time.Second))
 
-				var msg sm.Message
+				var msg smsg.MessageRawJSONPayload
 				readErr := conn.ReadJSON(&msg)
 				if !assert.NoErrorf(t, readErr, "the server failed to read WS message from client") {
 					break

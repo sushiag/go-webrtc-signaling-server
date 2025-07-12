@@ -5,7 +5,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 
-	sm "signaling-msgs"
+	smsg "signaling-msgs"
 )
 
 type Client struct {
@@ -38,7 +38,7 @@ type signalingManager struct {
 	clients    map[uint64]*peerManager
 	wsClientID uint64
 	// Channel for sending commands to the server
-	wsSendCh chan<- sm.Message
+	wsSendCh chan<- smsg.MessageAnyPayload
 }
 
 type sendICECandidate struct {
