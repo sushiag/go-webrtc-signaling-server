@@ -76,7 +76,7 @@ func (mt MessageType) ToString() (string, error) {
 		convertedType = "set-user-id"
 	default:
 		convertedType = fmt.Sprintf("unknown (%d)", mt)
-		err = fmt.Errorf(convertedType)
+		err = fmt.Errorf("%s", convertedType)
 	}
 
 	return convertedType, err

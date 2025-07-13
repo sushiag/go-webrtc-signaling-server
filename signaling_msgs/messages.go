@@ -10,11 +10,15 @@ type MessageType uint8
 
 type MessageAnyPayload struct {
 	MsgType MessageType `json:"type"`
+	To      uint64      `json:"to,omitempty"`
+	From    uint64      `json:"from,omitempty"`
 	Payload any         `json:"payload,omitempty"`
 }
 
 type MessageRawJSONPayload struct {
 	MsgType MessageType     `json:"type"`
+	To      uint64          `json:"to,omitempty"`
+	From    uint64          `json:"from,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
@@ -44,13 +48,9 @@ type RoomJoinedPayload struct {
 }
 
 type SDPPayload struct {
-	SDP  webrtc.SessionDescription `json:"sdp"`
-	From uint64                    `json:"from,omitempty"`
-	To   uint64                    `json:"to,omitempty"`
+	SDP webrtc.SessionDescription `json:"sdp"`
 }
 
 type ICECandidatePayload struct {
-	ICE  *webrtc.ICECandidate `json:"ice"`
-	From uint64               `json:"from,omitempty"`
-	To   uint64               `json:"to,omitempty"`
+	ICE webrtc.ICECandidateInit `json:"ice"`
 }
