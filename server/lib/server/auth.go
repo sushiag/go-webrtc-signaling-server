@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"sync/atomic"
+
+	smsg "signaling-msgs"
 )
 
 type authHandler struct {
@@ -16,7 +18,7 @@ type authHandler struct {
 
 func newAuthHandler() (authHandler, error) {
 	authHandler := authHandler{
-		nextUserID: 0,
+		nextUserID: 1,
 	}
 
 	apiKeyPath := os.Getenv("APIKEY_PATH")
@@ -63,7 +65,7 @@ func (handler *authHandler) authenticate(apiKey string) (uint64, error) {
 	return userID, nil
 }
 
-func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v Message) error {
+func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v smsg.MessageAnyPayload) error {
 	c.Outgoing <- v
 	return nil
 }

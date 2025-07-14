@@ -1,84 +1,96 @@
 package e2e_test
 
 import (
-	"strconv"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	client "github.com/sushiag/go-webrtc-signaling-server/client/lib"
+	"github.com/stretchr/testify/require"
+	client "github.com/sushiag/go-webrtc-signaling-server/client"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
 )
 
 func TestEndToEndSignalingFourUsers(t *testing.T) {
-	server, serverUrl := server.StartServer("0")
+	server, serverURL := server.StartServer("0")
 	defer server.Close()
+	wsEndpoint := fmt.Sprintf("ws://%s/ws", serverURL)
 
-	apiKeyA, apiKeyB, apiKeyC, apiKeyD := "valid-api-key-1", "valid-api-key-2", "valid-api-key-3", "valid-api-key-4"
+	apiKeys := []string{
+		"valid-api-key-1",
+		"valid-api-key-2",
+		"valid-api-key-3",
+		"valid-api-key-4",
+	}
+	nClients := len(apiKeys)
 
-	clientA := client.NewClient(serverUrl)
-	clientB := client.NewClient(serverUrl)
-	clientC := client.NewClient(serverUrl)
-	clientD := client.NewClient(serverUrl)
+	clients := make([]*client.Client, nClients)
+	for i := range nClients {
+		newClient, err := client.NewClientWithKey(wsEndpoint, apiKeys[i])
+		require.NoErrorf(t, err, "failed to initialize client %d", i)
+		clients[i] = newClient
+	}
+	t.Log("clients initialized")
 
-	clientA.Websocket.ApiKey = apiKeyA
-	clientB.Websocket.ApiKey = apiKeyB
-	clientC.Websocket.ApiKey = apiKeyC
-	clientD.Websocket.ApiKey = apiKeyD
+	roomID, err := clients[0].CreateRoom()
+	require.NoError(t, err)
 
-	clients := []*client.Client{clientA, clientB, clientC, clientD}
+	for i := 1; i < nClients; i++ {
+		_, err := clients[i].JoinRoom(roomID)
+		require.NoErrorf(t, err, "client %d failed to join room", clients[i].GetClientID())
+	}
+	t.Log("clients joined room")
 
-	for i, c := range clients {
-		err := c.Connect()
-		assert.NoError(t, err, "Client %d failed to connect", i)
+	t.Logf("waiting for data channels to open...")
+	connectedPeers := sync.Map{} // connected peerIDs for each client: map[clientID][]peerID
+	dataChannelsOk := make(chan uint64, 4)
+	for _, client := range clients {
+		clientID := client.GetClientID()
+		connectedPeers.Store(clientID, []uint64{})
+
+		go func() {
+			dataChOpened := client.GetDataChOpened()
+
+			for range nClients - 1 {
+				newPeerID := <-dataChOpened
+
+				// Check if the new data channel doesn't have a duplicate
+				peersAny, ok := connectedPeers.Load(clientID)
+				require.True(t, ok)
+				peers, ok := peersAny.([]uint64) // type cast
+				require.NotContains(t, peers, newPeerID)
+
+				// Add the new peerID then update the sync.Map
+				peers = append(peers, newPeerID)
+				connectedPeers.Store(clientID, peers)
+			}
+
+			dataChannelsOk <- clientID
+		}()
 	}
 
-	err := clientA.CreateRoom()
-	assert.NoError(t, err, "Client A failed to create room")
-
-	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
-
-	err = clientB.JoinRoom(roomID)
-	assert.NoError(t, err, "Client B failed to join room")
-
-	err = clientC.JoinRoom(roomID)
-	assert.NoError(t, err, "Client C failed to join room")
-
-	err = clientD.JoinRoom(roomID)
-	assert.NoError(t, err, "Client D failed to join room")
-
-	t.Logf("---- Waiting for data channels to open ----")
-	readyDataChannels := 0
-	totalPeers := 4
-	totalDataChannels := (totalPeers - 1) * totalPeers
+	clientsReady := 0
 	dataChDeadline := time.After(3 * time.Second)
-
-	for readyDataChannels < totalDataChannels {
+	for clientsReady < nClients {
 		select {
-		case <-clientA.PeerManager.PeerEventsCh:
-			readyDataChannels += 1
-		case <-clientB.PeerManager.PeerEventsCh:
-			readyDataChannels += 1
-		case <-clientC.PeerManager.PeerEventsCh:
-			readyDataChannels += 1
-		case <-clientD.PeerManager.PeerEventsCh:
-			readyDataChannels += 1
-
+		case clientID := <-dataChannelsOk:
+			t.Logf("client %d finished waiting for data channels to open", clientID)
+			clientsReady += 1
 		case <-dataChDeadline:
 			{
-				t.Fatalf("clients took longer than 3 secs to open their data channels, only opened: %d", readyDataChannels)
+				t.Fatalf("clients took longer than 3 secs to open their data channels, only opened: %d", clientsReady)
 			}
 		}
 	}
-	t.Logf("---- Data channels open! ----")
+	t.Logf("all data channels opened sucessfully!")
 
 	rounds := 1
 	msgsSent := atomic.Uint32{}
 	msgsReceived := atomic.Uint32{}
-	msgToSendPerUser := totalPeers - 1
-	totalMsgsToSend := uint32(totalPeers * msgToSendPerUser * rounds)
+	msgToSendPerUser := nClients - 1
+	totalMsgsToSend := uint32(nClients * msgToSendPerUser * rounds)
 	msgsToReceive := uint32(totalMsgsToSend)
 	t.Logf("total messages to send: %d", totalMsgsToSend)
 	wg := sync.WaitGroup{}
@@ -90,27 +102,25 @@ func TestEndToEndSignalingFourUsers(t *testing.T) {
 			wg.Add(1)
 
 			go func() {
-				senderID := strconv.FormatUint(sender.Websocket.UserID, 10)
+				senderID := sender.GetClientID()
+				peersAny, ok := connectedPeers.Load(senderID)
+				require.True(t, ok)
 
-				peerIDs := sender.PeerManager.GetPeerIDs()
-				for _, peerID := range peerIDs {
-					receiverID := strconv.FormatUint(peerID, 10)
-					message := "Round " + strconv.Itoa(round) +
-						" | from client " + senderID +
-						" | to client " + receiverID
-
-					t.Logf("%d sending message to %d", sender.Websocket.UserID, peerID)
-					err := sender.SendMessageToPeer(peerID, message)
-					assert.NoErrorf(t, err, "failed to send message from client %s to peer %s", senderID, receiverID)
+				peers := peersAny.([]uint64)
+				for _, receipientID := range peers {
+					msg := fmt.Sprintf("hello client %d from client %d", receipientID, senderID)
+					t.Logf("sending data %d->%d", senderID, receipientID)
+					sender.SendDataToPeer(uint64(receipientID), []byte(msg))
 					msgsSent.Add(1)
 				}
 
+				msgOutCh := sender.GetPeerDataMsgCh()
 				for range msgToSendPerUser {
 					select {
-					case <-sender.MsgOutCh:
+					case <-msgOutCh:
 						msgsReceived.Add(1)
 					case <-time.After(3 * time.Second):
-						t.Errorf("client %s waited too long for the message", senderID)
+						t.Errorf("client %d waited too long for the message", senderID)
 						return
 					}
 				}

@@ -4,6 +4,8 @@ replace github.com/sushiag/go-webrtc-signaling-server/client => ../client
 
 replace github.com/sushiag/go-webrtc-signaling-server/server => ../server
 
+replace signaling-msgs => ../signaling_msgs
+
 go 1.24.4
 
 require (
@@ -39,4 +41,5 @@ require (
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	signaling-msgs v0.0.0-00010101000000-000000000000 // indirect
 )

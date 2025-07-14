@@ -13,6 +13,7 @@ type MessageAnyPayload struct {
 	To      uint64      `json:"to,omitempty"`
 	From    uint64      `json:"from,omitempty"`
 	Payload any         `json:"payload,omitempty"`
+	Error   string      `json:"err,omitempty"`
 }
 
 type MessageRawJSONPayload struct {
@@ -20,6 +21,7 @@ type MessageRawJSONPayload struct {
 	To      uint64          `json:"to,omitempty"`
 	From    uint64          `json:"from,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
+	Error   string          `json:"err,omitempty"`
 }
 
 const (

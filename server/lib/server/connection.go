@@ -1,19 +1,20 @@
 package server
 
 import (
-	"encoding/json"
 	"log"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	smsg "signaling-msgs"
 )
 
-func NewConnection(userID uint64, conn *websocket.Conn, inboundMessages chan<- Message, disconnectOut chan<- uint64) *Connection {
+func NewConnection(userID uint64, conn *websocket.Conn, inboundMessages chan<- *smsg.MessageRawJSONPayload, disconnectOut chan<- uint64) *Connection {
 	c := &Connection{
 		UserID:       userID,
 		Conn:         conn,
 		Incoming:     make(chan Message),
-		Outgoing:     make(chan Message),
+		Outgoing:     make(chan smsg.MessageAnyPayload),
 		Disconnected: disconnectOut,
 	}
 	go c.readLoop(inboundMessages)
@@ -21,7 +22,7 @@ func NewConnection(userID uint64, conn *websocket.Conn, inboundMessages chan<- M
 	return c
 }
 
-func (c *Connection) readLoop(inboundMessages chan<- Message) {
+func (c *Connection) readLoop(inboundMessages chan<- *smsg.MessageRawJSONPayload) {
 	defer func() {
 		c.Disconnected <- c.UserID
 		c.Conn.Close()
@@ -30,28 +31,15 @@ func (c *Connection) readLoop(inboundMessages chan<- Message) {
 	}()
 
 	for {
-		msgType, data, err := c.Conn.ReadMessage()
-		if err != nil {
-			log.Printf("[WS] Read error from user %d: %v", c.UserID, err)
-			return
+		msg := &smsg.MessageRawJSONPayload{}
+		if err := c.Conn.ReadJSON(&msg); err != nil {
+			log.Printf("[WS] failed to read WS message from %d: %v", c.UserID, err)
+			continue
 		}
+		log.Printf("[WS] got WS message from %d", c.UserID)
 
-		switch msgType {
-		case websocket.BinaryMessage:
-			{
-				log.Printf("[WS] ignoring binary message from %d", c.UserID)
-			}
-		case websocket.TextMessage:
-			{
-				var msg Message
-				if err := json.Unmarshal(data, &msg); err != nil {
-					log.Printf("[WS] failed to unmarshal WS message from %d: %v", c.UserID, err)
-					continue
-				}
-				msg.Sender = c.UserID
-				inboundMessages <- msg
-			}
-		}
+		msg.From = c.UserID
+		inboundMessages <- msg
 	}
 }
 
@@ -67,7 +55,7 @@ func (c *Connection) writeLoop() {
 					log.Printf("[WS Server] Write error to %d: %v", c.UserID, err)
 					c.Disconnected <- c.UserID
 				}
-				log.Printf("[DEBUG] sent WS msg to %d", c.UserID)
+				log.Printf("[DEBUG] sent '%s' msg to %d", msg.MsgType.AsString(), c.UserID)
 			}
 
 		// TODO: we can probably ping only when there has been no activitiy for some time

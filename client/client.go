@@ -29,7 +29,6 @@ func NewClient(wsEndpoint string) (*Client, error) {
 }
 
 func NewClientWithKey(wsEndpoint string, apiKey string) (*Client, error) {
-
 	sClient, err := signaling.NewSignalingClient(wsEndpoint, apiKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialized signaling client: %v", err)
@@ -43,6 +42,18 @@ func NewClientWithKey(wsEndpoint string, apiKey string) (*Client, error) {
 	}
 
 	return client, nil
+}
+
+func (c *Client) CreateRoom() (uint64, error) {
+	return c.sClient.CreateRoom()
+}
+
+func (c *Client) JoinRoom(roomID uint64) ([]uint64, error) {
+	return c.sClient.JoinRoom(roomID)
+}
+
+func (c *Client) LeaveRoom() {
+	c.sClient.LeaveRoom()
 }
 
 // GetDataChOpened returns a read-only channel that emits the peer ID (uint64)
@@ -62,4 +73,8 @@ func (c *Client) GetPeerDataMsgCh() <-chan pm.PeerDataMsg {
 // Sends data to peer
 func (c *Client) SendDataToPeer(peerID uint64, data []byte) error {
 	return c.pm.SendDataToPeer(peerID, data)
+}
+
+func (c *Client) GetClientID() uint64 {
+	return c.sClient.ClientID
 }

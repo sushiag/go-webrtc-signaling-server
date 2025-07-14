@@ -1,6 +1,8 @@
 package signaling_client
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,9 +17,17 @@ type SignalingClient struct {
 	ClientID     uint64
 	SignalingIn  <-chan smsg.MessageRawJSONPayload
 	SignalingOut chan<- smsg.MessageAnyPayload
+
+	// NOTE: it's kinda unsafe to not lock these channels but we like to live dangerously
+	// * concurrent access == skill issues
+	createRoom chan smsg.MessageRawJSONPayload
+	joinRoom   chan smsg.MessageRawJSONPayload
 }
 
-const apiKeyEnvName = "API_KEY"
+type roomCommand struct {
+	msg    *smsg.MessageAnyPayload
+	respCh chan<- error
+}
 
 func NewSignalingClient(wsEndpoint string, apiKey string) (*SignalingClient, error) {
 	client := &SignalingClient{}
@@ -41,8 +51,10 @@ func NewSignalingClient(wsEndpoint string, apiKey string) (*SignalingClient, err
 	}
 	client.ClientID = clientID
 
-	signalingIn := make(chan smsg.MessageRawJSONPayload)
-	signalingOut := make(chan smsg.MessageAnyPayload)
+	signalingIn := make(chan smsg.MessageRawJSONPayload, 32)
+	signalingOut := make(chan smsg.MessageAnyPayload, 32)
+	client.SignalingIn = signalingIn
+	client.SignalingOut = signalingOut
 
 	// WS Read Loop
 	go func() {
@@ -55,11 +67,29 @@ func NewSignalingClient(wsEndpoint string, apiKey string) (*SignalingClient, err
 
 			switch msg.MsgType {
 			case smsg.Ping:
-				signalingOut <- smsg.MessageAnyPayload{MsgType: smsg.Pong}
+				{
+					signalingOut <- smsg.MessageAnyPayload{MsgType: smsg.Pong}
+				}
+			case smsg.RoomCreated:
+				{
+					if client.createRoom != nil {
+						client.createRoom <- msg
+					}
+				}
+			case smsg.RoomJoined:
+				{
+					// NOTE: we need to send the message to both the signaling channel and create
+					// room response channel here
+					if client.joinRoom != nil {
+						client.joinRoom <- msg
+					}
+					signalingIn <- msg
+				}
 			default:
-				signalingIn <- msg
+				{
+					signalingIn <- msg
+				}
 			}
-
 		}
 	}()
 
@@ -68,10 +98,69 @@ func NewSignalingClient(wsEndpoint string, apiKey string) (*SignalingClient, err
 		for msg := range signalingOut {
 			if err := wsConn.WriteJSON(msg); err != nil {
 				log.Printf("[ERROR] failed to send WS message to server: %v", err)
-				continue
 			}
+			log.Printf("[DEBUG] sent '%s' message to server", msg.MsgType.AsString())
 		}
 	}()
 
 	return client, nil
+}
+
+func (c *SignalingClient) CreateRoom() (uint64, error) {
+	var resp smsg.MessageRawJSONPayload
+	if c.createRoom == nil {
+		c.createRoom = make(chan smsg.MessageRawJSONPayload, 1)
+		c.SignalingOut <- smsg.MessageAnyPayload{MsgType: smsg.CreateRoom}
+	}
+
+	resp = <-c.createRoom
+
+	var err error
+	if resp.Error != "" {
+		err = errors.New(resp.Error)
+	}
+
+	var respMsg smsg.RoomJoinedPayload
+	if err := json.Unmarshal(resp.Payload, &respMsg); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal create room response payload: %v", err)
+	}
+
+	return respMsg.RoomID, err
+}
+
+func (c *SignalingClient) JoinRoom(roomID uint64) ([]uint64, error) {
+	var resp smsg.MessageRawJSONPayload
+	if c.joinRoom == nil {
+		c.joinRoom = make(chan smsg.MessageRawJSONPayload, 1)
+		c.SignalingOut <- smsg.MessageAnyPayload{
+			MsgType: smsg.JoinRoom,
+			Payload: smsg.JoinRoomPayload{
+				RoomID: roomID,
+			},
+		}
+	}
+
+	resp = <-c.joinRoom
+
+	var err error
+	if resp.Error != "" {
+		err = errors.New(resp.Error)
+	}
+
+	var respMsg smsg.RoomJoinedPayload
+	if err := json.Unmarshal(resp.Payload, &respMsg); err != nil {
+		return []uint64{}, fmt.Errorf("failed to unmarshal join room response payload: %v", err)
+	}
+
+	if respMsg.RoomID != roomID {
+		log.Printf("[WARN] got put in room %d instead of the requestd %d", respMsg.RoomID, roomID)
+	}
+
+	return respMsg.ClientsInRoom, err
+}
+
+func (c *SignalingClient) LeaveRoom() {
+	c.SignalingOut <- smsg.MessageAnyPayload{
+		MsgType: smsg.LeaveRoom,
+	}
 }

@@ -1,13 +1,12 @@
 package e2e_test
 
 import (
-	"strconv"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	client "github.com/sushiag/go-webrtc-signaling-server/client/lib"
-	"github.com/sushiag/go-webrtc-signaling-server/client/lib/common"
+	"github.com/stretchr/testify/require"
+	client "github.com/sushiag/go-webrtc-signaling-server/client"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
 )
 
@@ -17,59 +16,44 @@ func TestEndToEndSignaling(t *testing.T) {
 
 	apiKeyA, apiKeyB := "valid-api-key-1", "valid-api-key-2"
 
-	clientA := client.NewClient(serverURL)
-	clientB := client.NewClient(serverURL)
+	wsEndpoint := fmt.Sprintf("ws://%s/ws", serverURL)
+	clientA, err := client.NewClientWithKey(wsEndpoint, apiKeyA)
+	require.NoError(t, err)
+	t.Logf("client A connected to the signaling server")
 
-	clientA.Websocket.ApiKey = apiKeyA
-	clientB.Websocket.ApiKey = apiKeyB
+	clientB, err := client.NewClientWithKey(wsEndpoint, apiKeyB)
+	require.NoError(t, err)
+	t.Logf("client B connected to the signaling server")
 
-	err := clientA.Connect()
-	assert.NoError(t, err, "Client A failed to connect")
-	t.Logf("[TEST] Client A connected")
+	createdRoomID, err := clientA.CreateRoom()
+	require.NoError(t, err, "client A failed to create room")
+	t.Logf("client A created room %d", createdRoomID)
 
-	err = clientB.Connect()
-	assert.NoError(t, err, "Client B failed to connect")
-	t.Logf("[TEST] Client B connected")
-
-	err = clientA.CreateRoom()
-	assert.NoError(t, err, "Client A: failed to create room")
-	t.Logf("[TEST] Client A Created Room")
-
-	roomID := strconv.FormatUint(clientA.Websocket.RoomID, 10)
-
-	err = clientB.JoinRoom(roomID)
-	assert.NoError(t, err, "Client B failed to join room")
-	t.Logf("[TEST] Client B Joined Room")
+	clientsInRoom, err := clientB.JoinRoom(createdRoomID)
+	require.NoError(t, err, "client B failed to join room %d", createdRoomID)
+	t.Logf("client B joined room %d", createdRoomID)
+	require.Equal(t, []uint64{1}, clientsInRoom)
 
 	clientAMsg := "Hello from Client A!"
-	var clientAPeers []uint64
-	var clientBPeers []uint64
-
 	clientBMsg := "Wassup from Client B!"
 
 	t.Logf("---- Waiting for data channels to open ----")
 	readyDataChannels := 0
 	dataChDeadline := time.After(5 * time.Second)
+	dataChOpenedA := clientA.GetDataChOpened()
+	dataChOpenedB := clientB.GetDataChOpened()
 	for readyDataChannels < 2 {
 		select {
-		case ev := <-clientA.PeerManager.PeerEventsCh:
+		case peerID := <-dataChOpenedA:
 			{
-				clientAPeers = clientA.PeerManager.GetPeerIDs()
-				assert.Equal(t, clientAPeers, []uint64{1}, "wrong client A peers")
-				t.Logf("Client A peers: %v", clientAPeers)
-				assert.Equal(t, ev, common.PeerDataChOpened{PeerID: clientAPeers[0]})
+				require.Equal(t, clientB.GetClientID(), peerID)
 				readyDataChannels += 1
 			}
-
-		case ev := <-clientB.PeerManager.PeerEventsCh:
+		case peerID := <-dataChOpenedB:
 			{
-				clientBPeers = clientB.PeerManager.GetPeerIDs()
-				assert.Equal(t, clientBPeers, []uint64{0}, "wrong client B peers")
-				t.Logf("Client B peers: %v", clientBPeers)
-				assert.Equal(t, ev, common.PeerDataChOpened{PeerID: clientBPeers[0]})
+				require.Equal(t, clientA.GetClientID(), peerID)
 				readyDataChannels += 1
 			}
-
 		case <-dataChDeadline:
 			{
 				t.Fatal("clients took longer than 5 secs to open their data channels")
@@ -79,28 +63,30 @@ func TestEndToEndSignaling(t *testing.T) {
 	t.Logf("---- Data channels open! ----")
 
 	t.Logf("---- Sending Messages Start ----")
-	err = clientA.SendMessageToPeer(clientAPeers[0], clientAMsg)
-	assert.NoErrorf(t, err, "Failed to send message from client A to peer %d", clientAPeers[0])
+	err = clientA.SendDataToPeer(clientB.GetClientID(), []byte(clientAMsg))
+	require.NoError(t, err, "client A failed to send message")
 
-	err = clientB.SendMessageToPeer(clientBPeers[0], clientBMsg)
-	assert.NoErrorf(t, err, "Failed to send message from client B to peer %d", clientBPeers[0])
+	err = clientB.SendDataToPeer(clientA.GetClientID(), []byte(clientBMsg))
+	require.NoError(t, err, "client B failed to send message")
 	t.Logf("---- Sending Messages End ----")
 
 	receivedMsgs := 0
 	recvMsgDeadline := time.After(5 * time.Second)
+	clientAMsgOut := clientA.GetPeerDataMsgCh()
+	clientBMsgOut := clientB.GetPeerDataMsgCh()
 	for receivedMsgs < 2 {
 		select {
-		case msg := <-clientA.MsgOutCh:
+		case msg := <-clientAMsgOut:
 			{
-				assert.Equal(t, msg.From, clientB.Websocket.UserID)
-				assert.Equal(t, msg.Data, []byte(clientBMsg))
+				require.Equal(t, msg.From, clientB.GetClientID())
+				require.Equal(t, msg.Data, []byte(clientBMsg))
 				receivedMsgs += 1
 			}
 
-		case msg := <-clientB.MsgOutCh:
+		case msg := <-clientBMsgOut:
 			{
-				assert.Equal(t, msg.From, clientA.Websocket.UserID)
-				assert.Equal(t, msg.Data, []byte(clientAMsg))
+				require.Equal(t, msg.From, clientA.GetClientID())
+				require.Equal(t, msg.Data, []byte(clientAMsg))
 				receivedMsgs += 1
 			}
 

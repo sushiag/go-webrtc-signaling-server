@@ -4,6 +4,8 @@ import (
 	"log"
 
 	"github.com/gorilla/websocket"
+
+	smsg "signaling-msgs"
 )
 
 // TODO: currently unused... is this the same as start session?
@@ -41,6 +43,14 @@ func (wsm *WebSocketManager) addUserToRoom(roomID uint64, joiningUserID uint64) 
 		return
 	}
 
+	// get the userIDs of the clients in the room
+	clientsInRoom := make([]uint64, len(room.Users))
+	i := 0
+	for userID, _ := range room.Users {
+		clientsInRoom[i] = userID
+		i += 1
+	}
+
 	room.Users[joiningUserID] = wsm.Connections[joiningUserID]
 	var peers []uint64
 	for uid := range room.Users {
@@ -51,109 +61,64 @@ func (wsm *WebSocketManager) addUserToRoom(roomID uint64, joiningUserID uint64) 
 
 	// Notify the new user the room they joined
 	if conn, ok := wsm.Connections[joiningUserID]; ok {
-		_ = wsm.SafeWriteJSON(conn, Message{
-			Type:   MessageTypeRoomJoined,
-			RoomID: roomID,
+		_ = wsm.SafeWriteJSON(conn, smsg.MessageAnyPayload{
+			MsgType: smsg.RoomJoined,
+			Payload: smsg.RoomJoinedPayload{RoomID: roomID, ClientsInRoom: clientsInRoom},
 		})
 	}
 
-	// Then notify everyone else of the new peer that joined
-	for _, user := range room.Users {
-		if user.UserID == joiningUserID {
-			continue
-		}
-
-		conn, exists := wsm.Connections[user.UserID]
-		if !exists {
-			log.Printf("[ERROR] unknown user (%d) is in room %d", conn.UserID, room.ID)
-		}
-
-		log.Printf("[DEBUG] notifying user %d that %d joined the room", conn.UserID, joiningUserID)
-
-		_ = wsm.SafeWriteJSON(conn, Message{
-			Type:   MessageTypePeerJoined,
-			UserID: joiningUserID,
-		})
-	}
-
+	// TODO: notify everyone else in the room that a peer joined
 	log.Printf("[WS] User %d joined room %d", joiningUserID, roomID)
 }
 
-func (wsm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
-	conn, exists := wsm.Connections[msg.Target]
-	inSameRoom := wsm.AreInSameRoom(msg.RoomID, []uint64{msg.Sender, msg.Target})
+// TODO: cleanup unused
+// func (wsm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
+// 	conn, exists := wsm.Connections[msg.Target]
+// 	inSameRoom := wsm.AreInSameRoom(msg.RoomID, []uint64{msg.Sender, msg.Target})
+//
+// 	log.Printf("[WS DEBUG] forwardOrBuffer type=%s from=%d to=%d exists=%v sameRoom=%v",
+// 		msg.Type, senderID, msg.Target, exists, inSameRoom)
+//
+// 	if !exists || !inSameRoom {
+// 		log.Printf("[WS DEBUG] Buffering %s from %d to %d", msg.Type, msg.Sender, msg.Target)
+// 		wsm.candidateBuffer[msg.Target] = append(wsm.candidateBuffer[msg.Target], msg)
+// 		return
+// 	}
+//
+// 	if err := wsm.SafeWriteJSON(conn, msg); err != nil {
+// 		log.Printf("[WS ERROR] Failed to send %s from %d to %d: %v", msg.Type, msg.Sender, msg.Target, err)
+// 		wsm.disconnectChan <- msg.Sender
+// 	} else {
+// 		log.Printf("[WS DEBUG] Sent %s from %d to %d", msg.Type, msg.Sender, msg.Target)
+// 	}
+// }
 
-	log.Printf("[WS DEBUG] forwardOrBuffer type=%s from=%d to=%d exists=%v sameRoom=%v",
-		msg.Type, senderID, msg.Target, exists, inSameRoom)
-
-	if !exists || !inSameRoom {
-		log.Printf("[WS DEBUG] Buffering %s from %d to %d", msg.Type, msg.Sender, msg.Target)
-		wsm.candidateBuffer[msg.Target] = append(wsm.candidateBuffer[msg.Target], msg)
-		return
-	}
-
-	if err := wsm.SafeWriteJSON(conn, msg); err != nil {
-		log.Printf("[WS ERROR] Failed to send %s from %d to %d: %v", msg.Type, msg.Sender, msg.Target, err)
-		wsm.disconnectChan <- msg.Sender
-	} else {
-		log.Printf("[WS DEBUG] Sent %s from %d to %d", msg.Type, msg.Sender, msg.Target)
-	}
-}
-
-func (wsm *WebSocketManager) flushBufferedMessages(userID uint64) {
-	buffered, ok := wsm.candidateBuffer[userID]
-	if !ok {
-		return
-	}
-
-	conn, exists := wsm.Connections[userID]
-	if !exists {
-		return
-	}
-
-	var remaining []Message
-	for _, msg := range buffered {
-		if err := wsm.SafeWriteJSON(conn, msg); err != nil {
-			log.Printf("[WS ERROR] Failed to flush buffered message to %d: %v", userID, err)
-			remaining = append(remaining, msg)
-		}
-	}
-
-	if len(remaining) > 0 {
-		wsm.candidateBuffer[userID] = remaining
-	} else {
-		delete(wsm.candidateBuffer, userID)
-	}
-}
-
-func (wsm *WebSocketManager) handlePeerListRequest(msg Message) {
-	roomID := msg.RoomID
-	userID := msg.Sender
-
-	room, exists := wsm.Rooms[roomID]
-	if !exists {
-		log.Printf("[WS] Room %d does not exist for user %d", roomID, userID)
-		return
-	}
-
-	var peerList []uint64
-	for uid := range room.Users {
-		if uid != userID {
-			peerList = append(peerList, uid)
-		}
-	}
-
-	if conn, ok := wsm.Connections[userID]; ok {
-		_ = wsm.SafeWriteJSON(conn, Message{
-			Type:   MessageTypePeerList,
-			RoomID: roomID,
-			Users:  peerList,
-			Sender: userID,
-		})
-	}
-
-	log.Printf("[WS] Sent peer list to user %d: %v", userID, peerList)
-}
+// TODO: remove if not needed anymore
+// func (wsm *WebSocketManager) flushBufferedMessages(userID uint64) {
+// 	buffered, ok := wsm.candidateBuffer[userID]
+// 	if !ok {
+// 		return
+// 	}
+//
+// 	conn, exists := wsm.Connections[userID]
+// 	if !exists {
+// 		return
+// 	}
+//
+// 	var remaining []Message
+// 	for _, msg := range buffered {
+// 		if err := wsm.SafeWriteJSON(conn, msg); err != nil {
+// 			log.Printf("[WS ERROR] Failed to flush buffered message to %d: %v", userID, err)
+// 			remaining = append(remaining, msg)
+// 		}
+// 	}
+//
+// 	if len(remaining) > 0 {
+// 		wsm.candidateBuffer[userID] = remaining
+// 	} else {
+// 		delete(wsm.candidateBuffer, userID)
+// 	}
+// }
 
 func (wsm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool {
 	room, exists := wsm.Rooms[roomID]

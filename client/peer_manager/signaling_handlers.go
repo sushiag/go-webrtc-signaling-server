@@ -42,8 +42,8 @@ func (pm *PeerManager) newPeerOffer(peerID uint64) error {
 
 	dataCh.OnMessage(func(msg webrtc.DataChannelMessage) {
 		pm.peerData <- PeerDataMsg{
-			from: peerID,
-			data: msg.Data,
+			From: peerID,
+			Data: msg.Data,
 		}
 	})
 
@@ -106,8 +106,8 @@ func (pm *PeerManager) handlePeerOffer(peerID uint64, offer webrtc.SessionDescri
 
 		dataCh.OnMessage(func(msg webrtc.DataChannelMessage) {
 			pm.peerData <- PeerDataMsg{
-				from: peerID,
-				data: msg.Data,
+				From: peerID,
+				Data: msg.Data,
 			}
 		})
 

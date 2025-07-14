@@ -75,8 +75,8 @@ func TestPeerDataExchange(t *testing.T) {
 	client1.SendDataToPeer(2, []byte("hello from client 1"))
 	client2.SendDataToPeer(1, []byte("hello from client 2"))
 
-	require.Equal(t, PeerDataMsg{from: 2, data: []byte("hello from client 2")}, <-client1.GetPeerDataMsgCh())
-	require.Equal(t, PeerDataMsg{from: 1, data: []byte("hello from client 1")}, <-client2.GetPeerDataMsgCh())
+	require.Equal(t, PeerDataMsg{From: 2, Data: []byte("hello from client 2")}, <-client1.GetPeerDataMsgCh())
+	require.Equal(t, PeerDataMsg{From: 1, Data: []byte("hello from client 1")}, <-client2.GetPeerDataMsgCh())
 	t.Log("clients finished exchanging data")
 	// Data exchange end
 }

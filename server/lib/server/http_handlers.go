@@ -3,8 +3,11 @@ package server
 import (
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/websocket"
+
+	smsg "signaling-msgs"
 )
 
 // Handles the /ws endpoint
@@ -25,7 +28,8 @@ func handleWSEndpoint(w http.ResponseWriter, r *http.Request, auth *authHandler,
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
-	conn, err := upgrader.Upgrade(w, r, nil)
+
+	conn, err := upgrader.Upgrade(w, r, http.Header{"X-Client-ID": []string{strconv.FormatUint(userID, 10)}})
 	if err != nil {
 		log.Printf("[SERVER] failed to upgrade to WS connection: %v", err)
 		return
@@ -35,7 +39,7 @@ func handleWSEndpoint(w http.ResponseWriter, r *http.Request, auth *authHandler,
 		UserID:   userID,
 		Conn:     conn,
 		Incoming: make(chan Message),
-		Outgoing: make(chan Message),
+		Outgoing: make(chan smsg.MessageAnyPayload),
 	}
 
 	newConnCh <- newConn

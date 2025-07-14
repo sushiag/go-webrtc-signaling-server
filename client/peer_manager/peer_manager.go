@@ -16,8 +16,8 @@ type PeerManager struct {
 }
 
 type PeerDataMsg struct {
-	from uint64
-	data []byte
+	From uint64
+	Data []byte
 }
 
 type peer struct {
@@ -46,7 +46,7 @@ func NewPeerManager(signalingIn <-chan smsg.MessageRawJSONPayload, signalingOut 
 		peerData:     make(chan PeerDataMsg, 32),
 	}
 
-	client.startSignalingLoop(signalingIn)
+	go client.signalingLoop(signalingIn)
 
 	return client
 }

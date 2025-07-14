@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
+
+	smsg "signaling-msgs"
 )
 
 type MessageType int
@@ -141,7 +143,7 @@ type WebSocketManager struct {
 	nextUserID      uint64
 	nextRoomID      uint64
 	candidateBuffer map[uint64][]Message
-	messageChan     chan Message
+	messageChan     chan *smsg.MessageRawJSONPayload
 	disconnectChan  chan uint64
 	newConnChan     chan *Connection
 }
@@ -151,7 +153,7 @@ type Connection struct {
 	UserID       uint64
 	Conn         *websocket.Conn
 	Incoming     chan Message
-	Outgoing     chan Message
+	Outgoing     chan smsg.MessageAnyPayload
 	Disconnected chan<- uint64
 }
 
@@ -163,7 +165,7 @@ func NewWebSocketManager() *WebSocketManager {
 		candidateBuffer: make(map[uint64][]Message),
 		nextUserID:      1,
 		nextRoomID:      1,
-		messageChan:     make(chan Message),
+		messageChan:     make(chan *smsg.MessageRawJSONPayload),
 		disconnectChan:  make(chan uint64),
 		newConnChan:     make(chan *Connection),
 	}
