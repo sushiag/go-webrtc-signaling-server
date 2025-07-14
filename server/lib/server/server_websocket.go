@@ -16,6 +16,29 @@ type Room struct {
 }
 
 // this handles connection and room management
+//
+// TODO: we should refactor our data structure for the connections+rooms.
+//
+// Connections should be map[uint64]*Connection where Connection has the following:
+//
+//	type Connection struct {
+//		clientID		uint64
+//		roomID			room
+//		isInRoom		bool
+//		isRoomOwner	bool
+//		... etc.
+//	}
+//
+// then the Rooms should be map[roomID]*Room where Room is:
+//
+//	type Room struct {
+//		clients	[]uint64
+//		owner		uint64
+//		... etc.
+//	}
+//
+// The change in the connection struct will make it easier to query if two users are in
+// the same room without iterating through the room clients struct
 type WebSocketManager struct {
 	Connections    map[uint64]*Connection
 	Rooms          map[uint64]*Room
