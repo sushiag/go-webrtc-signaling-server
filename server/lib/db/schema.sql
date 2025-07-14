@@ -1,6 +1,7 @@
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL,
-    api_key TEXT NULL UNIQUE
+    api_key TEXT NULL UNIQUE,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

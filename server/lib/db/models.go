@@ -4,9 +4,14 @@
 
 package db
 
+import (
+	"database/sql"
+)
+
 type User struct {
-	ID       int64
-	Username string
-	Password string
-	ApiKey   interface{}
+	ID        int64
+	Username  string
+	Password  string
+	ApiKey    interface{}
+	UpdatedAt sql.NullString
 }

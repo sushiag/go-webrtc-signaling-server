@@ -36,7 +36,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
 }
 
 const getUserByApikeys = `-- name: GetUserByApikeys :one
-SELECT id, username, password, api_key FROM users WHERE api_key = ?
+SELECT id, username, password, api_key, updated_at FROM users WHERE api_key = ?
 `
 
 func (q *Queries) GetUserByApikeys(ctx context.Context, apiKey interface{}) (User, error) {
@@ -47,12 +47,13 @@ func (q *Queries) GetUserByApikeys(ctx context.Context, apiKey interface{}) (Use
 		&i.Username,
 		&i.Password,
 		&i.ApiKey,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password, api_key FROM users WHERE username = ?
+SELECT id, username, password, api_key, updated_at FROM users WHERE username = ? LIMIT 1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -63,39 +64,39 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.Username,
 		&i.Password,
 		&i.ApiKey,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const updateAPIKey = `-- name: UpdateAPIKey :exec
-UPDATE users SET api_key = ? WHERE username = ? AND password = ?
+UPDATE users
+SET api_key = ?, updated_at = CURRENT_TIMESTAMP
+WHERE username = ?
 `
 
 type UpdateAPIKeyParams struct {
 	ApiKey   interface{}
 	Username string
-	Password string
 }
 
 func (q *Queries) UpdateAPIKey(ctx context.Context, arg UpdateAPIKeyParams) error {
-	_, err := q.db.ExecContext(ctx, updateAPIKey, arg.ApiKey, arg.Username, arg.Password)
+	_, err := q.db.ExecContext(ctx, updateAPIKey, arg.ApiKey, arg.Username)
 	return err
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE users
-SET password = ?
+SET password = ?, updated_at = CURRENT_TIMESTAMP 
 WHERE username = ?
-AND password = ?
 `
 
 type UpdateUserPasswordParams struct {
-	Password   string
-	Username   string
-	Password_2 string
+	Password string
+	Username string
 }
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.Password, arg.Username, arg.Password_2)
+	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.Password, arg.Username)
 	return err
 }
