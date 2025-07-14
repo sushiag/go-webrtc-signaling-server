@@ -13,7 +13,6 @@ func NewConnection(userID uint64, conn *websocket.Conn, inboundMessages chan<- *
 	c := &Connection{
 		UserID:       userID,
 		Conn:         conn,
-		Incoming:     make(chan Message),
 		Outgoing:     make(chan smsg.MessageAnyPayload),
 		Disconnected: disconnectOut,
 	}
@@ -38,6 +37,8 @@ func (c *Connection) readLoop(inboundMessages chan<- *smsg.MessageRawJSONPayload
 		}
 		log.Printf("[WS] got WS message from %d", c.UserID)
 
+		// NOTE: it's important we make sure to set this 'From' field on the incoming messsage
+		// before using it somewhere else so the client cannot pretend to be someone else
 		msg.From = c.UserID
 		inboundMessages <- msg
 	}

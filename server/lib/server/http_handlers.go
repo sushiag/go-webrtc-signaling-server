@@ -38,7 +38,6 @@ func handleWSEndpoint(w http.ResponseWriter, r *http.Request, auth *authHandler,
 	newConn := &Connection{
 		UserID:   userID,
 		Conn:     conn,
-		Incoming: make(chan Message),
 		Outgoing: make(chan smsg.MessageAnyPayload),
 	}
 

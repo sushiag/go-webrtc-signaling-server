@@ -3,31 +3,8 @@ package server
 import (
 	"log"
 
-	"github.com/gorilla/websocket"
-
 	smsg "signaling-msgs"
 )
-
-// TODO: currently unused... is this the same as start session?
-func (wsm *WebSocketManager) handleStart(msg Message) {
-	roomID := msg.RoomID
-
-	room, exists := wsm.Rooms[roomID]
-	if !exists {
-		log.Printf("[WS] Room %d does not exist", roomID)
-		return
-	}
-
-	for uid, peerConn := range room.Users {
-		if peerConn != nil {
-			log.Printf("[WS] Closing connection to user %d for P2P switch", uid)
-			_ = peerConn.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Switching to P2P"))
-			_ = peerConn.Conn.Close()
-		}
-	}
-
-	delete(wsm.Rooms, roomID)
-}
 
 func (wsm *WebSocketManager) addUserToRoom(roomID uint64, joiningUserID uint64) {
 	log.Printf("[DEBUG] adding user %d to room %d", joiningUserID, roomID)
@@ -164,24 +141,16 @@ func (wsm *WebSocketManager) disconnectUser(userID uint64) {
 		delete(wsm.Connections, userID)
 	}
 
+	// TODO: check what this for
 	// Remove buffered candidate messages for the user
-	delete(wsm.candidateBuffer, userID)
+	// delete(wsm.candidateBuffer, userID)
 
 	// Remove the user from rooms and notify remaining peers
 	for roomID, room := range wsm.Rooms {
 		if _, inRoom := room.Users[userID]; inRoom {
 			delete(room.Users, userID)
 
-			// Notify remaining peers that this user has left
-			for _, peerConn := range room.Users {
-				if peerConn != nil {
-					_ = peerConn.Conn.WriteJSON(Message{
-						Type:   MessageTypePeerLeft,
-						RoomID: roomID,
-						Sender: userID,
-					})
-				}
-			}
+			// TODO: Notify remaining peers that this user has left
 
 			log.Printf("[WS] User %d removed from room %d", userID, roomID)
 
