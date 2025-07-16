@@ -11,17 +11,15 @@ import (
 )
 
 // Handles the /ws endpoint
-func handleWSEndpoint(w http.ResponseWriter, r *http.Request, auth *authHandler, newConnCh chan *Connection) {
+func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Connection, wsm *WebSocketManager) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	apiKey := r.Header.Get("X-Api-Key")
-
-	userID, err := auth.authenticate(apiKey)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+	userID, ok := wsm.Authenticate(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 

@@ -41,10 +41,11 @@ func StartServer(port string, queries *db.Queries) (*http.Server, string) {
 	mux.HandleFunc("/newpassword", handler.updatePassword)
 	mux.HandleFunc("/regenerate", handler.regenerateNewAPIKeys)
 
+	// TODO FIX LATEr
 	//mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 	//	log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
-	//	handleWSEndpoint(w, r, &authHandler, wsManager.newConnChan)
-	// })
+	//handleWSEndpoint(w, r, &authHandler, wsManager.newConnChan)
+	//})
 
 	// THIS IS TEMPORARY
 	mux.HandleFunc("/ws", wsManager.Handler)
