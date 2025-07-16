@@ -5,25 +5,26 @@ import (
 	"log"
 	"net/http"
 
+	smsg "signaling-msgs"
+
 	"github.com/gorilla/websocket"
 )
 
-func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v Message) error {
+func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v smsg.MessageAnyPayload) error {
 	c.Outgoing <- v
 	return nil
-}
-
-func (wsm *WebSocketManager) SetValidApiKeys(keys map[string]bool) {
-	wsm.validApiKeys = keys
 }
 
 func (wsm *WebSocketManager) Authenticate(r *http.Request) (uint64, bool) {
 
 	apikey := r.Header.Get("X-Api-Key")
+
 	user, err := wsm.Queries.GetUserByApikeys(r.Context(), apikey)
 	if err != nil {
 		return 0, false
 	}
+
+	log.Printf("[AUTHENTICATION] User %s#%d", user.Username, user.ID)
 	return uint64(user.ID), true
 }
 
@@ -50,9 +51,11 @@ func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp := struct {
-		UserID uint64 `json:"userID"`
+		UserID   uint64 `json:"userID"`
+		Username string `json:"username"`
 	}{
-		UserID: uint64(user.ID),
+		UserID:   uint64(user.ID),
+		Username: user.Username,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -87,11 +90,9 @@ func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	wsm.Connections[userID] = connection
 
 	// Flush buffered candidates if any
-	wsm.flushBufferedMessages(userID)
+	//wsm.flushBufferedMessages(userID)
 
 	log.Printf("[WS] User %d connected", userID)
 
-	c := NewConnection(userID, conn, wsm.messageChan, wsm.disconnectChan)
-	wsm.Connections[userID] = c
-	go wsm.sendPings(userID, conn)
+	//go wsm.sendPings(userID, conn)
 }

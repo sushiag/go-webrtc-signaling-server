@@ -1,19 +1,23 @@
-module github.com/sushiag/go-webrtc-signaling-server/server
+module e2e_test
 
-go 1.24.4
+replace github.com/sushiag/go-webrtc-signaling-server/client => ../client
 
-require github.com/mattn/go-sqlite3 v1.14.28
+replace github.com/sushiag/go-webrtc-signaling-server/server => ../server
 
 replace signaling-msgs => ../signaling_msgs
 
+go 1.24.4
+
 require (
-	github.com/gorilla/websocket v1.5.3
-	golang.org/x/crypto v0.40.0
-	signaling-msgs v0.0.0-00010101000000-000000000000
+	github.com/stretchr/testify v1.10.0
+	github.com/sushiag/go-webrtc-signaling-server/client v0.0.0-00010101000000-000000000000
+	github.com/sushiag/go-webrtc-signaling-server/server v0.0.0-20250501162938-30973ccb994f
 )
 
 require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
 	github.com/pion/dtls/v3 v3.0.6 // indirect
 	github.com/pion/ice/v4 v4.0.10 // indirect
@@ -30,7 +34,11 @@ require (
 	github.com/pion/transport/v3 v3.0.7 // indirect
 	github.com/pion/turn/v4 v4.0.2 // indirect
 	github.com/pion/webrtc/v4 v4.1.3 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	signaling-msgs v0.0.0-00010101000000-000000000000 // indirect
 )

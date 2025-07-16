@@ -28,26 +28,27 @@ func StartServer(port string, queries *db.Queries) (*http.Server, string) {
 	serverUrl = listener.Addr().String()
 	log.Printf("[SERVER] Listening on %s", serverUrl)
 
-	manager := NewWebSocketManager()
+	wsManager := NewWebSocketManager()
+	wsManager.Queries = queries
 
 	handler := &Handler{
 		Queries: queries,
 	}
-
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/register", handler.registerNewUser)
 	mux.HandleFunc("/login", handler.loginUser)
 	mux.HandleFunc("/newpassword", handler.updatePassword)
 	mux.HandleFunc("/regenerate", handler.regenerateNewAPIKeys)
-	//mux.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
-	//	log.Printf("[SERVER] /auth called from %s", r.RemoteAddr)
-	//	manager.AuthHandler(w, r)
+
+	//mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+	//	log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
+	//	handleWSEndpoint(w, r, &authHandler, wsManager.newConnChan)
 	// })
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
-		manager.Handler(w, r)
-	})
+
+	// THIS IS TEMPORARY
+	mux.HandleFunc("/ws", wsManager.Handler)
+	mux.HandleFunc("/auth", wsManager.AuthHandler)
 
 	server := &http.Server{
 		Addr:    serverUrl,
