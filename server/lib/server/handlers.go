@@ -12,9 +12,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var queries = newDefaultDB()
+
 // Registration ---
 
-func (nh *Handler) registerNewUser(w http.ResponseWriter, r *http.Request) {
+func registerNewUser(w http.ResponseWriter, r *http.Request) {
 	var rqst struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -51,7 +53,7 @@ func (nh *Handler) registerNewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// --- INSERT TO DB ---
-	err = nh.Queries.CreateUser(r.Context(), db.CreateUserParams{
+	err = queries.CreateUser(r.Context(), db.CreateUserParams{
 		Username: rqst.Username,
 		Password: string(hashed),
 		ApiKey:   apikey,
@@ -83,7 +85,7 @@ func (nh *Handler) registerNewUser(w http.ResponseWriter, r *http.Request) {
 
 // --- LOGIN USER VIA API-KEY ---
 
-func (nh *Handler) getUserFromAPIKey(r *http.Request) (*db.User, error) {
+func getUserFromAPIKey(r *http.Request) (*db.User, error) {
 	apiKey := r.Header.Get("X-API-Key")
 	if apiKey == "" {
 		// fallback if some clients send Authorization header instead
@@ -96,7 +98,7 @@ func (nh *Handler) getUserFromAPIKey(r *http.Request) (*db.User, error) {
 		return nil, fmt.Errorf("API key missing")
 	}
 
-	user, err := nh.Queries.GetUserByApikeys(r.Context(), apiKey)
+	user, err := queries.GetUserByApikeys(r.Context(), apiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +107,7 @@ func (nh *Handler) getUserFromAPIKey(r *http.Request) (*db.User, error) {
 
 // -- REGENERATE API Key ---
 
-func (nh *Handler) regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request) {
+func regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request) {
 	var rqst struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -115,7 +117,7 @@ func (nh *Handler) regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	// --- ACCESS USER ACCOUNT IN DATABASE ---
-	user, err := nh.Queries.GetUserByUsername(r.Context(), rqst.Username)
+	user, err := queries.GetUserByUsername(r.Context(), rqst.Username)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(rqst.Password)) != nil {
 		log.Printf("[LOGIN FOR NEW API KEY] Username and Password does not match")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -130,7 +132,7 @@ func (nh *Handler) regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err = nh.Queries.UpdateAPIKey(r.Context(), db.UpdateAPIKeyParams{ // iF username & password passes, update API KEY
+	err = queries.UpdateAPIKey(r.Context(), db.UpdateAPIKeyParams{ // iF username & password passes, update API KEY
 		ApiKey:   newAPIKey,
 		Username: rqst.Username,
 	})
@@ -154,7 +156,7 @@ func (nh *Handler) regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request) 
 
 }
 
-func (nh *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
+func updatePassword(w http.ResponseWriter, r *http.Request) {
 	var rqst struct {
 		Username    string `json:"username"`
 		OldPassword string `json:"old_password"`
@@ -168,7 +170,7 @@ func (nh *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// --- GET USERNAME FROM DATABASE ---
-	user, err := nh.Queries.GetUserByUsername(r.Context(), rqst.Username)
+	user, err := queries.GetUserByUsername(r.Context(), rqst.Username)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(rqst.OldPassword)) != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -189,7 +191,7 @@ func (nh *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = nh.Queries.UpdateUserPassword(r.Context(), db.UpdateUserPasswordParams{
+	err = queries.UpdateUserPassword(r.Context(), db.UpdateUserPasswordParams{
 		Username: rqst.Username,
 		Password: string(hashed),
 	})

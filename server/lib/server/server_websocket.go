@@ -4,7 +4,6 @@ import (
 	smsg "signaling-msgs"
 
 	"github.com/gorilla/websocket"
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
 )
 
 // struct for a group of connected users
@@ -44,8 +43,6 @@ type WebSocketManager struct {
 	//validApiKeys    map[string]bool
 	//apiKeyToUserID  map[string]uint64
 	//candidateBuffer map[uint64][]Message
-	Queries *db.Queries
-
 	Connections    map[uint64]*Connection
 	Rooms          map[uint64]*Room
 	nextUserID     uint64

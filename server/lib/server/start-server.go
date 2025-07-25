@@ -32,7 +32,7 @@ func applySchema(conn *sql.DB, path string) error {
 	_, err = conn.Exec(string(schemaSQL))
 	return err
 }
-func StartServer(port string, queries *db.Queries) (*http.Server, string) {
+func StartServer(port string) (*http.Server, string) {
 	host := os.Getenv("SERVER_HOST")
 	if host == "" {
 		host = "127.0.0.1"
@@ -49,27 +49,19 @@ func StartServer(port string, queries *db.Queries) (*http.Server, string) {
 	serverUrl = listener.Addr().String()
 	log.Printf("[SERVER] Listening on %s", serverUrl)
 
-	if queries == nil {
-		queries = newDefaultDB()
-	}
-
 	wsManager := NewWebSocketManager()
-	wsManager.Queries = queries
 
-	handler := &Handler{
-		Queries: queries,
-	}
 	mux := http.NewServeMux()
 
 	// Auth handlers
-	mux.HandleFunc("/register", handler.registerNewUser)
-	mux.HandleFunc("/newpassword", handler.updatePassword)
-	mux.HandleFunc("/regenerate", handler.regenerateNewAPIKeys)
+	mux.HandleFunc("/register", registerNewUser)
+	mux.HandleFunc("/newpassword", updatePassword)
+	mux.HandleFunc("/regenerate", regenerateNewAPIKeys)
 
 	// WebSocket Connection
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
-		handleWSEndpoint(w, r, wsManager.newConnChan, wsManager, handler)
+		handleWSEndpoint(w, r, wsManager.newConnChan)
 	})
 
 	server := &http.Server{

@@ -5,14 +5,15 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/mattn/go-sqlite3"
+
 	"github.com/stretchr/testify/require"
 	client "github.com/sushiag/go-webrtc-signaling-server/client"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
 )
 
 func TestEndToEndSignaling(t *testing.T) {
-	srv, serverURL := server.StartServer("0", &db.Queries{})
+	srv, serverURL := server.StartServer("0")
 	defer srv.Close() // ensure server is closed after the test
 
 	apiKeyA, apiKeyB := "valid-api-key-1", "valid-api-key-2"

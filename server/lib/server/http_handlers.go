@@ -10,13 +10,13 @@ import (
 	smsg "signaling-msgs"
 )
 
-func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Connection, wsm *WebSocketManager, nh *Handler) {
+func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Connection) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	user, err := nh.getUserFromAPIKey(r)
+	user, err := getUserFromAPIKey(r)
 	if err != nil {
 		log.Printf("[WS] Unauthorized WebSocket attempt: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)

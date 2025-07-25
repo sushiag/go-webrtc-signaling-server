@@ -14,7 +14,7 @@ import (
 )
 
 func TestAuthEndpoints(t *testing.T) {
-	srv, serverURL := server.StartServer("0", server.NewWebSocketManager().Queries)
+	srv, serverURL := server.StartServer("0")
 	defer srv.Close()
 
 	baseURL := fmt.Sprintf("http://%s", serverURL)
@@ -88,7 +88,7 @@ func post(t *testing.T, url string, data map[string]string) *http.Response {
 	b, err := json.Marshal(data)
 	require.NoError(t, err)
 
-	resp, err := http.Post(url, "application/json", bytes.NewReader(b))
+	resp, err := http.Post(url, "applic))
 	require.NoError(t, err)
 
 	return resp

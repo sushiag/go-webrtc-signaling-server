@@ -13,7 +13,7 @@ import (
 )
 
 func TestClientAuthFlow(t *testing.T) {
-	srv, serverAddr := server.StartServer("0", server.NewWebSocketManager().Queries)
+	srv, serverAddr := server.StartServer("0")
 	defer srv.Close()
 
 	baseURL := fmt.Sprintf("http://%s", serverAddr)

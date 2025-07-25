@@ -13,10 +13,6 @@ type Handler struct {
 	Queries *db.Queries
 }
 
-func NewHandler(nh *db.Queries) *Handler {
-	return &Handler{Queries: nh}
-}
-
 var (
 	usernameReg = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,15}$`)
 )
@@ -41,6 +37,9 @@ func noWhitespace(in string) bool {
 
 func checkUsernameField(username string) error {
 	switch {
+	case username == "":
+		log.Printf("Username field: must not be blank")
+		return errors.New("username shouldn't be blank")
 	case len(username) < 8 || len(username) > 16:
 		log.Printf("Username field: Username must be 8–16 characters")
 		return errors.New("username must be between 8 and 16 characters")
@@ -53,16 +52,15 @@ func checkUsernameField(username string) error {
 	case !onlyASCII(username):
 		log.Printf("Username field: only ASCII allowed")
 		return errors.New("username must only be contain ASCII")
-	case username == "":
-		log.Printf("Username field: must not be blank")
-		return errors.New("username shouldn't be blank")
-
 	}
 	return nil
 }
 
 func checkPasswordField(password string) error {
 	switch {
+	case password == "":
+		log.Printf("Password field: must not be blank")
+		return errors.New("password must not be blank")
 	case len(password) < 8 || len(password) > 32:
 		log.Printf("Password field: should only be 8-32 characters")
 		return errors.New("password should only be 8-32 characters only")
@@ -72,9 +70,6 @@ func checkPasswordField(password string) error {
 	case !onlyASCII(password):
 		log.Printf("Username field: ONLYASCII allowed")
 		return errors.New("password must only be ACSII")
-	case password == "":
-		log.Printf("Password field: must not be blank")
-		return errors.New("password must not be blank")
 	}
 	return nil
 }

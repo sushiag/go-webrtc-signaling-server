@@ -1,4 +1,4 @@
-package post
+package client
 
 import (
 	"bytes"
@@ -12,7 +12,8 @@ type Credentials struct {
 	Password string
 }
 
-func Registration(wsurl, username, password string) error {
+// RegisterUser registers a new user to the signaling server.
+func RegisterUser(wsurl, username, password string) error {
 	url := fmt.Sprintf("%s/register", wsurl)
 	body := map[string]string{
 		"Username": username,
@@ -50,6 +51,7 @@ func GetLoginFromAPIKey(url string, apiKey string) (*http.Response, error) {
 	return client.Do(req)
 }
 
+// RegenerateAPIKey returns a new API key by providing username and password.
 func RegenerateAPIKey(wsurl, username, password string) (string, error) {
 	url := fmt.Sprintf("%s/regenerate", wsurl)
 	body := map[string]string{
@@ -81,6 +83,7 @@ func RegenerateAPIKey(wsurl, username, password string) (string, error) {
 	return res.APIKey, nil
 }
 
+// ResetPassword allows a user to change their password using the current one.
 func ResetPassword(baseURL, username, oldPassword, newPassword string) error {
 	url := fmt.Sprintf("%s/newpassword", baseURL)
 	body := map[string]string{

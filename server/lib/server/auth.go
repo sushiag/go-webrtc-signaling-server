@@ -22,7 +22,7 @@ func (wsm *WebSocketManager) Authenticate(r *http.Request) (uint64, bool) {
 		return 0, false
 	}
 
-	user, err := wsm.Queries.GetUserByApikeys(r.Context(), apikey)
+	user, err := queries.GetUserByApikeys(r.Context(), apikey)
 	if err != nil {
 		log.Printf("[AUTHENTICATION] Invalid API key")
 		return 0, false
@@ -48,7 +48,7 @@ func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	user, err := wsm.Queries.GetUserByApikeys(r.Context(), payload.ApiKey)
+	user, err := queries.GetUserByApikeys(r.Context(), payload.ApiKey)
 	if err != nil {
 		http.Error(w, "Unauthorized access", http.StatusUnauthorized)
 		return
