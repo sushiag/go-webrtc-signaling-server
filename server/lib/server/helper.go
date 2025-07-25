@@ -54,55 +54,6 @@ func (wsm *WebSocketManager) addUserToRoom(roomID uint64, joiningUserID uint64) 
 	log.Printf("[WS] User %d joined room %d", joiningUserID, roomID)
 }
 
-// TODO: cleanup unused
-// func (wsm *WebSocketManager) forwardOrBuffer(senderID uint64, msg Message) {
-// 	conn, exists := wsm.Connections[msg.Target]
-// 	inSameRoom := wsm.AreInSameRoom(msg.RoomID, []uint64{msg.Sender, msg.Target})
-//
-// 	log.Printf("[WS DEBUG] forwardOrBuffer type=%s from=%d to=%d exists=%v sameRoom=%v",
-// 		msg.Type, senderID, msg.Target, exists, inSameRoom)
-//
-// 	if !exists || !inSameRoom {
-// 		log.Printf("[WS DEBUG] Buffering %s from %d to %d", msg.Type, msg.Sender, msg.Target)
-// 		wsm.candidateBuffer[msg.Target] = append(wsm.candidateBuffer[msg.Target], msg)
-// 		return
-// 	}
-//
-// 	if err := wsm.SafeWriteJSON(conn, msg); err != nil {
-// 		log.Printf("[WS ERROR] Failed to send %s from %d to %d: %v", msg.Type, msg.Sender, msg.Target, err)
-// 		wsm.disconnectChan <- msg.Sender
-// 	} else {
-// 		log.Printf("[WS DEBUG] Sent %s from %d to %d", msg.Type, msg.Sender, msg.Target)
-// 	}
-// }
-
-// TODO: remove if not needed anymore
-// func (wsm *WebSocketManager) flushBufferedMessages(userID uint64) {
-// 	buffered, ok := wsm.candidateBuffer[userID]
-// 	if !ok {
-// 		return
-// 	}
-//
-// 	conn, exists := wsm.Connections[userID]
-// 	if !exists {
-// 		return
-// 	}
-//
-// 	var remaining []Message
-// 	for _, msg := range buffered {
-// 		if err := wsm.SafeWriteJSON(conn, msg); err != nil {
-// 			log.Printf("[WS ERROR] Failed to flush buffered message to %d: %v", userID, err)
-// 			remaining = append(remaining, msg)
-// 		}
-// 	}
-//
-// 	if len(remaining) > 0 {
-// 		wsm.candidateBuffer[userID] = remaining
-// 	} else {
-// 		delete(wsm.candidateBuffer, userID)
-// 	}
-// }
-
 func (wsm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool {
 	room, exists := wsm.Rooms[roomID]
 	if !exists {
@@ -146,10 +97,6 @@ func (wsm *WebSocketManager) disconnectUser(userID uint64) {
 		conn.Conn.Close()
 		delete(wsm.Connections, userID)
 	}
-
-	// TODO: check what this for
-	// Remove buffered candidate messages for the user
-	// delete(wsm.candidateBuffer, userID)
 
 	// Remove the user from rooms and notify remaining peers
 	for roomID, room := range wsm.Rooms {

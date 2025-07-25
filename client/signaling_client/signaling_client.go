@@ -37,7 +37,7 @@ func NewSignalingClient(wsEndpoint string, apiKey string) (*SignalingClient, err
 	}
 
 	// connect to the WS endpoint
-	headers := http.Header{"X-Api-Key": []string{apiKey}}
+	headers := http.Header{"Authorization": []string{"Bearer " + apiKey}}
 	wsConn, resp, err := websocket.DefaultDialer.Dial(wsEndpoint, headers)
 	if err != nil {
 		return nil, err

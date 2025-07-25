@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 
 	smsg "signaling-msgs"
 
@@ -14,17 +15,20 @@ func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v smsg.MessageAnyPaylo
 	c.Outgoing <- v
 	return nil
 }
-
 func (wsm *WebSocketManager) Authenticate(r *http.Request) (uint64, bool) {
-
 	apikey := r.Header.Get("X-Api-Key")
-
-	user, err := wsm.Queries.GetUserByApikeys(r.Context(), apikey)
-	if err != nil {
+	if apikey == "" {
+		log.Printf("[AUTHENTICATION] Missing API key")
 		return 0, false
 	}
 
-	log.Printf("[AUTHENTICATION] User %s#%d", user.Username, user.ID)
+	user, err := wsm.Queries.GetUserByApikeys(r.Context(), apikey)
+	if err != nil {
+		log.Printf("[AUTHENTICATION] Invalid API key")
+		return 0, false
+	}
+
+	log.Printf("[AUTHENTICATION] User %s#%d authenticated", user.Username, user.ID)
 	return uint64(user.ID), true
 }
 
@@ -50,17 +54,15 @@ func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resp := struct {
+	w.Header().Set("X-Client-ID", strconv.FormatUint(uint64(user.ID), 10))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
 		UserID   uint64 `json:"userID"`
 		Username string `json:"username"`
 	}{
 		UserID:   uint64(user.ID),
 		Username: user.Username,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-
+	})
 }
 
 func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
@@ -89,10 +91,6 @@ func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
 	connection := NewConnection(userID, conn, wsm.messageChan, wsm.disconnectChan)
 	wsm.Connections[userID] = connection
 
-	// Flush buffered candidates if any
-	//wsm.flushBufferedMessages(userID)
-
 	log.Printf("[WS] User %d connected", userID)
 
-	//go wsm.sendPings(userID, conn)
 }

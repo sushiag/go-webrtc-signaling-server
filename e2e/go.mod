@@ -9,6 +9,7 @@ replace signaling-msgs => ../signaling_msgs
 go 1.24.4
 
 require (
+	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/stretchr/testify v1.10.0
 	github.com/sushiag/go-webrtc-signaling-server/client v0.0.0-00010101000000-000000000000
 	github.com/sushiag/go-webrtc-signaling-server/server v0.0.0-20250501162938-30973ccb994f

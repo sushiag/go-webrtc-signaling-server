@@ -11,10 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 	client "github.com/sushiag/go-webrtc-signaling-server/client"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
+	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
 )
 
 func TestEndToEndSignalingFourUsers(t *testing.T) {
-	server, serverURL := server.StartServer("0")
+	server, serverURL := server.StartServer("0", &db.Queries{})
 	defer server.Close()
 	wsEndpoint := fmt.Sprintf("ws://%s/ws", serverURL)
 

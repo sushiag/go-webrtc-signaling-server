@@ -2,89 +2,17 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
-	"unicode"
 
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/db"
-	sqlitedb "github.com/sushiag/go-webrtc-signaling-server/server/lib/register"
+	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
+	sqlitedb "github.com/sushiag/go-webrtc-signaling-server/server/lib/server/register"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type Handler struct {
-	Queries *db.Queries
-}
-
-func NewHandler(nh *db.Queries) *Handler {
-	return &Handler{Queries: nh}
-}
-
-var (
-	usernameReg = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,15}$`)
-)
-
-func onlyASCII(in string) bool {
-	for _, r := range in {
-		if r < 32 || r > 126 { // no chinese char allowed
-			return false
-		}
-	}
-	return true
-}
-
-func noWhitespace(in string) bool {
-	for _, r := range in {
-		if unicode.IsSpace(r) { // no white allowed
-			return true
-		}
-	}
-	return false
-}
-
-func checkUsernameField(username string) error {
-	switch {
-	case len(username) < 8 || len(username) > 16:
-		log.Printf("Username field: Username must be 8–16 characters")
-		return errors.New("username must be between 8 and 16 characters")
-	case !usernameReg.MatchString(username):
-		log.Printf("Username field: invalid characters")
-		return errors.New("username should only contain alphanumeric/underscore and max 16 characters")
-	case noWhitespace(username):
-		log.Printf("Username field: shouldn't contain whitespace")
-		return errors.New("username shouldn't have whitespaces")
-	case !onlyASCII(username):
-		log.Printf("Username field: only ASCII allowed")
-		return errors.New("username must only be contain ASCII")
-	case username == "":
-		log.Printf("Username field: must not be blank")
-		return errors.New("username shouldn't be blank")
-
-	}
-	return nil
-}
-
-func checkPasswordField(password string) error {
-	switch {
-	case len(password) < 8 || len(password) > 32:
-		log.Printf("Password field: should only be 8-32 characters")
-		return errors.New("password should only be 8-32 characters only")
-	case noWhitespace(password):
-		log.Printf("Password field: no whitespace allowed")
-		return errors.New("password should not contain whitespaces")
-	case !onlyASCII(password):
-		log.Printf("Username field: ONLYASCII allowed")
-		return errors.New("password must only be ACSII")
-	case password == "":
-		log.Printf("Password field: must not be blank")
-		return errors.New("password must not be blank")
-	}
-	return nil
-}
-
-// --- Registration ---
+// Registration ---
 
 func (nh *Handler) registerNewUser(w http.ResponseWriter, r *http.Request) {
 	var rqst struct {
@@ -153,46 +81,26 @@ func (nh *Handler) registerNewUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (nh *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
-	var rqst struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+// --- LOGIN USER VIA API-KEY ---
+
+func (nh *Handler) getUserFromAPIKey(r *http.Request) (*db.User, error) {
+	apiKey := r.Header.Get("X-API-Key")
+	if apiKey == "" {
+		// fallback if some clients send Authorization header instead
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			apiKey = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("API key missing")
 	}
 
-	log.Printf("[LOGIN] Attemping to Login")
-
-	if err := json.NewDecoder(r.Body).Decode(&rqst); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-	// -- LOGIN LOGIC --
-
-	user, err := nh.Queries.GetUserByUsername(r.Context(), rqst.Username)
+	user, err := nh.Queries.GetUserByApikeys(r.Context(), apiKey)
 	if err != nil {
-		log.Printf("[LOGIN] Username does not exist")
-		http.Error(w, "Invalid username", http.StatusUnauthorized)
-		return
+		return nil, err
 	}
-	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(rqst.Password)) != nil {
-		log.Printf("[LOGIN] Password does not match username")
-		http.Error(w, "Invalid password", http.StatusUnauthorized)
-		return
-	}
-
-	log.Printf("[LOGIN] Login Sucessful, Welcome Back user %s", user.Username)
-
-	// Return API key
-	resp := struct {
-		APIKey string `json:"api_key"`
-	}{
-		APIKey: user.ApiKey.(string),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("[LOGIN] Failed to send response: %v", err)
-	}
+	return &user, nil
 }
 
 // -- REGENERATE API Key ---
@@ -262,15 +170,6 @@ func (nh *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 	// --- GET USERNAME FROM DATABASE ---
 	user, err := nh.Queries.GetUserByUsername(r.Context(), rqst.Username)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(rqst.OldPassword)) != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(rqst.OldPassword)); err != nil {
-		log.Printf("[PASSWORD] Old password mismatch")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(rqst.OldPassword)); err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}

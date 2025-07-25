@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	post "github.com/sushiag/go-webrtc-signaling-server/client/auth"
 	pm "github.com/sushiag/go-webrtc-signaling-server/client/peer_manager"
 	signaling "github.com/sushiag/go-webrtc-signaling-server/client/signaling_client"
 )
@@ -17,14 +18,9 @@ const apiKeyEnvName = "API_KEY"
 
 func NewClient(wsEndpoint string) (*Client, error) {
 	apiKey, keyExists := os.LookupEnv(apiKeyEnvName)
-	if !keyExists {
-		return nil, fmt.Errorf("the API_KEY")
+	if !keyExists || apiKey == "" {
+		return nil, fmt.Errorf("API_KEY environment variable is not set or empty")
 	}
-
-	if apiKey == "" {
-		return nil, fmt.Errorf("the API_KEY cannot be an empty string")
-	}
-
 	return NewClientWithKey(wsEndpoint, apiKey)
 }
 
@@ -77,4 +73,19 @@ func (c *Client) SendDataToPeer(peerID uint64, data []byte) error {
 
 func (c *Client) GetClientID() uint64 {
 	return c.sClient.ClientID
+}
+
+// RegisterUser registers a new user to the signaling server.
+func RegisterUser(baseURL, username, password string) error {
+	return post.Registration(baseURL, username, password)
+}
+
+// RegenerateAPIKey returns a new API key by providing username and password.
+func RegenerateAPIKey(baseURL, username, password string) (string, error) {
+	return post.RegenerateAPIKey(baseURL, username, password)
+}
+
+// ResetPassword allows a user to change their password using the current one.
+func ResetPassword(baseURL, username, oldPassword, newPassword string) error {
+	return post.ResetPassword(baseURL, username, oldPassword, newPassword)
 }

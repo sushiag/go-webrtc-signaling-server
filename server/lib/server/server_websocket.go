@@ -4,7 +4,7 @@ import (
 	smsg "signaling-msgs"
 
 	"github.com/gorilla/websocket"
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/db"
+	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
 )
 
 // struct for a group of connected users

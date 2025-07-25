@@ -10,15 +10,15 @@ import (
 	smsg "signaling-msgs"
 )
 
-// Handles the /ws endpoint
-func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Connection, wsm *WebSocketManager) {
+func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Connection, wsm *WebSocketManager, nh *Handler) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	userID, ok := wsm.Authenticate(r)
-	if !ok {
+	user, err := nh.getUserFromAPIKey(r)
+	if err != nil {
+		log.Printf("[WS] Unauthorized WebSocket attempt: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -27,17 +27,21 @@ func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Co
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 
-	conn, err := upgrader.Upgrade(w, r, http.Header{"X-Client-ID": []string{strconv.FormatUint(userID, 10)}})
+	header := http.Header{}
+	header.Set("X-Client-ID", strconv.FormatUint(uint64(user.ID), 10))
+
+	conn, err := upgrader.Upgrade(w, r, header)
 	if err != nil {
-		log.Printf("[SERVER] failed to upgrade to WS connection: %v", err)
+		log.Printf("[WS] Failed to upgrade to WebSocket: %v", err)
 		return
 	}
 
 	newConn := &Connection{
-		UserID:   userID,
+		UserID:   uint64(user.ID),
 		Conn:     conn,
 		Outgoing: make(chan smsg.MessageAnyPayload),
 	}
 
 	newConnCh <- newConn
+	log.Printf("[WS] WebSocket connection established for user %s (ID %d)", user.Username, user.ID)
 }

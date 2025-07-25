@@ -1,16 +1,37 @@
 package server
 
 import (
+	"database/sql"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/db"
+	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
 )
 
+func newDefaultDB() *db.Queries {
+	conn, err := sql.Open("sqlite3", "file:users.db?cache=shared")
+	if err != nil {
+		log.Fatalf("[SERVER] Failed to open DB: %v", err)
+	}
+	if err := applySchema(conn, "../server/lib/server/db/schema.sql"); err != nil { // adjust path if using cmd/main.go use '../lib/server/db/schema.sql'
+		log.Fatalf("[SERVER] Failed to apply schema: %v", err)
+	}
+	return db.New(conn)
+}
+
+func applySchema(conn *sql.DB, path string) error {
+	schemaSQL, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	_, err = conn.Exec(string(schemaSQL))
+	return err
+}
 func StartServer(port string, queries *db.Queries) (*http.Server, string) {
 	host := os.Getenv("SERVER_HOST")
 	if host == "" {
@@ -28,6 +49,10 @@ func StartServer(port string, queries *db.Queries) (*http.Server, string) {
 	serverUrl = listener.Addr().String()
 	log.Printf("[SERVER] Listening on %s", serverUrl)
 
+	if queries == nil {
+		queries = newDefaultDB()
+	}
+
 	wsManager := NewWebSocketManager()
 	wsManager.Queries = queries
 
@@ -36,20 +61,16 @@ func StartServer(port string, queries *db.Queries) (*http.Server, string) {
 	}
 	mux := http.NewServeMux()
 
+	// Auth handlers
 	mux.HandleFunc("/register", handler.registerNewUser)
-	mux.HandleFunc("/login", handler.loginUser)
 	mux.HandleFunc("/newpassword", handler.updatePassword)
 	mux.HandleFunc("/regenerate", handler.regenerateNewAPIKeys)
 
-	// TODO FIX LATEr
-	//mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-	//	log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
-	//handleWSEndpoint(w, r, &authHandler, wsManager.newConnChan)
-	//})
-
-	// THIS IS TEMPORARY
-	mux.HandleFunc("/ws", wsManager.Handler)
-	mux.HandleFunc("/auth", wsManager.AuthHandler)
+	// WebSocket Connection
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
+		handleWSEndpoint(w, r, wsManager.newConnChan, wsManager, handler)
+	})
 
 	server := &http.Server{
 		Addr:    serverUrl,

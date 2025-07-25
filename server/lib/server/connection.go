@@ -33,8 +33,12 @@ func (c *Connection) readLoop(inboundMessages chan<- *smsg.MessageRawJSONPayload
 		msg := &smsg.MessageRawJSONPayload{}
 		if err := c.Conn.ReadJSON(&msg); err != nil {
 			log.Printf("[WS] failed to read WS message from %d: %v", c.UserID, err)
-			continue
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("[WS] unexpected close from user %d: %v", c.UserID, err)
+			}
+			return
 		}
+
 		log.Printf("[WS] got WS message from %d", c.UserID)
 
 		// NOTE: it's important we make sure to set this 'From' field on the incoming messsage
