@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sushiag/go-webrtc-signaling-server/client"
-	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
+	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
 )
 
 func TestClientAuthFlow(t *testing.T) {

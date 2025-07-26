@@ -9,8 +9,6 @@ import (
 )
 
 func main() {
-	os.Setenv("API_KEY", "valid-api-key-1")
-
 	client, err := client.NewClient("ws://127.0.0.1:50299/ws")
 	if err != nil {
 		log.Panicf("failed to initialize client: %v", err)

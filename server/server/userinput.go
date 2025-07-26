@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"unicode"
 
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 )
 
 type Handler struct {

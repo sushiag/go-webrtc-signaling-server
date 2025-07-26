@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -9,21 +10,42 @@ import (
 
 	"github.com/stretchr/testify/require"
 	client "github.com/sushiag/go-webrtc-signaling-server/client"
-	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
+	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
 )
 
 func TestEndToEndSignaling(t *testing.T) {
 	srv, serverURL := server.StartServer("0")
 	defer srv.Close() // ensure server is closed after the test
 
-	apiKeyA, apiKeyB := "valid-api-key-1", "valid-api-key-2"
+	httpBase := fmt.Sprintf("http://%s", serverURL)
+	wsURL := fmt.Sprintf("ws://%s/ws", serverURL)
 
-	wsEndpoint := fmt.Sprintf("ws://%s/ws", serverURL)
-	clientA, err := client.NewClientWithKey(wsEndpoint, apiKeyA)
+	user1 := "spongebob"
+	user2 := "patrickk"
+	initialPass := "initPass4ever"
+	newPass := "newPass4ever"
+
+	require.NoError(t, client.RegisterUser(httpBase, user1, initialPass))
+	require.NoError(t, client.RegisterUser(httpBase, user2, initialPass))
+
+	require.NoError(t, client.ResetPassword(httpBase, user1, initialPass, newPass))
+	require.NoError(t, client.ResetPassword(httpBase, user2, initialPass, newPass))
+
+	apiKeyA, err := client.RegenerateAPIKey(httpBase, user1, newPass)
+	require.NotEmpty(t, apiKeyA)
+
+	require.NoError(t, os.Setenv("API_KEY", apiKeyA))
+
+	apiKeyB, err := client.RegenerateAPIKey(httpBase, user2, newPass)
+	require.NotEmpty(t, apiKeyB)
+
+	require.NoError(t, os.Setenv("API_KEY", apiKeyB))
+
+	clientA, err := client.NewClientWithKey(wsURL, apiKeyA)
 	require.NoError(t, err)
 	t.Logf("client A connected to the signaling server")
 
-	clientB, err := client.NewClientWithKey(wsEndpoint, apiKeyB)
+	clientB, err := client.NewClientWithKey(wsURL, apiKeyB)
 	require.NoError(t, err)
 	t.Logf("client B connected to the signaling server")
 
@@ -34,7 +56,7 @@ func TestEndToEndSignaling(t *testing.T) {
 	clientsInRoom, err := clientB.JoinRoom(createdRoomID)
 	require.NoError(t, err, "client B failed to join room %d", createdRoomID)
 	t.Logf("client B joined room %d", createdRoomID)
-	require.Equal(t, []uint64{1}, clientsInRoom)
+	require.Equal(t, []uint64{1, 2}, clientsInRoom)
 
 	clientAMsg := "Hello from Client A!"
 	clientBMsg := "Wassup from Client B!"

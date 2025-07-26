@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
-	sqlitedb "github.com/sushiag/go-webrtc-signaling-server/server/lib/server/register"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
+	sqlitedb "github.com/sushiag/go-webrtc-signaling-server/server/server/register"
 	"golang.org/x/crypto/bcrypt"
 )
 

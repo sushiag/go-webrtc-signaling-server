@@ -4,7 +4,7 @@ import (
 	"log"
 
 	_ "github.com/mattn/go-sqlite3"
-	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
+	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
 )
 
 func main() {

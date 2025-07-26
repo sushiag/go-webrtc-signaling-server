@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 )
 
 func newDefaultDB() *db.Queries {
@@ -18,7 +18,7 @@ func newDefaultDB() *db.Queries {
 	if err != nil {
 		log.Fatalf("[SERVER] Failed to open DB: %v", err)
 	}
-	if err := applySchema(conn, "../server/lib/server/db/schema.sql"); err != nil { // adjust path if using cmd/main.go use '../lib/server/db/schema.sql'
+	if err := applySchema(conn, "../server/server/db/schema.sql"); err != nil { // adjust path if using cmd/main.go use '../server/db/schema.sql'
 		log.Fatalf("[SERVER] Failed to apply schema: %v", err)
 	}
 	return db.New(conn)

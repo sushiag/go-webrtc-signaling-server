@@ -12,29 +12,38 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	client "github.com/sushiag/go-webrtc-signaling-server/client"
-	server "github.com/sushiag/go-webrtc-signaling-server/server/lib/server"
+	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
 )
 
 func TestEndToEndSignalingFourUsers(t *testing.T) {
-	server, serverURL := server.StartServer("0")
-	defer server.Close()
-	wsEndpoint := fmt.Sprintf("ws://%s/ws", serverURL)
+	srv, serverURL := server.StartServer("0")
+	defer srv.Close()
 
-	apiKeys := []string{
-		"valid-api-key-1",
-		"valid-api-key-2",
-		"valid-api-key-3",
-		"valid-api-key-4",
+	httpBase := fmt.Sprintf("http://%s", serverURL)
+	wsURL := fmt.Sprintf("ws://%s/ws", serverURL)
+
+	users := []string{"spongebob", "patrickK", "sandyyyy", "squidward"}
+	initialPass := "initPass4ever"
+	newPass := "newPass4ever"
+	apiKeys := make([]string, len(users))
+
+	for i, username := range users {
+		require.NoError(t, client.RegisterUser(httpBase, username, initialPass))
+		require.NoError(t, client.ResetPassword(httpBase, username, initialPass, newPass))
+		key, err := client.RegenerateAPIKey(httpBase, username, newPass)
+		require.NoError(t, err)
+		require.NotEmpty(t, key)
+		apiKeys[i] = key
 	}
+
 	nClients := len(apiKeys)
-
 	clients := make([]*client.Client, nClients)
-	for i := range nClients {
-		newClient, err := client.NewClientWithKey(wsEndpoint, apiKeys[i])
-		require.NoErrorf(t, err, "failed to initialize client %d", i)
-		clients[i] = newClient
+	for i := 0; i < nClients; i++ {
+		c, err := client.NewClientWithKey(wsURL, apiKeys[i])
+		require.NoError(t, err, "failed to initialize client %d", i)
+		clients[i] = c
 	}
-	t.Log("clients initialized")
+	t.Log("All clients connected to signaling server")
 
 	roomID, err := clients[0].CreateRoom()
 	require.NoError(t, err)

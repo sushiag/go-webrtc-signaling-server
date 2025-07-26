@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"log"
 
-	"github.com/sushiag/go-webrtc-signaling-server/server/lib/server/db"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 )
 
 func NewDatabase(datasource string) *db.Queries {
