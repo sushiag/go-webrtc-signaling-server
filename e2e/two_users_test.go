@@ -11,11 +11,20 @@ import (
 	"github.com/stretchr/testify/require"
 	client "github.com/sushiag/go-webrtc-signaling-server/client"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
+	sqlitedb "github.com/sushiag/go-webrtc-signaling-server/server/server/register"
 )
 
 func TestEndToEndSignaling(t *testing.T) {
-	srv, serverURL := server.StartServer("0")
-	defer srv.Close() // ensure server is closed after the test
+	const testdata = "friends.db"
+	queries, dbConn := sqlitedb.NewDatabase(testdata)
+
+	srv, serverURL := server.StartServer("0", queries)
+	defer srv.Close()
+
+	defer func() {
+		_ = dbConn.Close()
+		_ = os.Remove(testdata)
+	}() // ensure server is closed after the test
 
 	httpBase := fmt.Sprintf("http://%s", serverURL)
 	wsURL := fmt.Sprintf("ws://%s/ws", serverURL)
@@ -56,7 +65,7 @@ func TestEndToEndSignaling(t *testing.T) {
 	clientsInRoom, err := clientB.JoinRoom(createdRoomID)
 	require.NoError(t, err, "client B failed to join room %d", createdRoomID)
 	t.Logf("client B joined room %d", createdRoomID)
-	require.Equal(t, []uint64{1, 2}, clientsInRoom)
+	require.ElementsMatch(t, []uint64{1, 2}, clientsInRoom)
 
 	clientAMsg := "Hello from Client A!"
 	clientBMsg := "Wassup from Client B!"

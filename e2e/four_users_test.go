@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,12 +14,20 @@ import (
 	"github.com/stretchr/testify/require"
 	client "github.com/sushiag/go-webrtc-signaling-server/client"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
+	sqlitedb "github.com/sushiag/go-webrtc-signaling-server/server/server/register"
 )
 
 func TestEndToEndSignalingFourUsers(t *testing.T) {
-	srv, serverURL := server.StartServer("0")
+	const testdata = "auth.db"
+	queries, dbConn := sqlitedb.NewDatabase(testdata)
+
+	srv, serverURL := server.StartServer("0", queries)
 	defer srv.Close()
 
+	defer func() {
+		_ = dbConn.Close()
+		_ = os.Remove(testdata)
+	}()
 	httpBase := fmt.Sprintf("http://%s", serverURL)
 	wsURL := fmt.Sprintf("ws://%s/ws", serverURL)
 

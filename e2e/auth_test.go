@@ -10,11 +10,20 @@ import (
 
 	"github.com/sushiag/go-webrtc-signaling-server/client"
 	server "github.com/sushiag/go-webrtc-signaling-server/server/server"
+	sqlitedb "github.com/sushiag/go-webrtc-signaling-server/server/server/register"
 )
 
 func TestClientAuthFlow(t *testing.T) {
-	srv, serverAddr := server.StartServer("0")
+	const testdata = "employee.db"
+	queries, dbConn := sqlitedb.NewDatabase(testdata)
+
+	srv, serverAddr := server.StartServer("0", queries)
 	defer srv.Close()
+
+	defer func() {
+		_ = dbConn.Close()
+		_ = os.Remove(testdata)
+	}()
 
 	baseURL := fmt.Sprintf("http://%s", serverAddr)
 	username := "spongebob"

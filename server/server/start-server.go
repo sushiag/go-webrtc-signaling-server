@@ -1,9 +1,7 @@
 package server
 
 import (
-	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -13,26 +11,7 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 )
 
-func newDefaultDB() *db.Queries {
-	conn, err := sql.Open("sqlite3", "file:users.db?cache=shared")
-	if err != nil {
-		log.Fatalf("[SERVER] Failed to open DB: %v", err)
-	}
-	if err := applySchema(conn, "../server/server/db/schema.sql"); err != nil { // adjust path if using cmd/main.go use '../server/db/schema.sql'
-		log.Fatalf("[SERVER] Failed to apply schema: %v", err)
-	}
-	return db.New(conn)
-}
-
-func applySchema(conn *sql.DB, path string) error {
-	schemaSQL, err := ioutil.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	_, err = conn.Exec(string(schemaSQL))
-	return err
-}
-func StartServer(port string) (*http.Server, string) {
+func StartServer(port string, queries *db.Queries) (*http.Server, string) {
 	host := os.Getenv("SERVER_HOST")
 	if host == "" {
 		host = "127.0.0.1"
@@ -54,14 +33,20 @@ func StartServer(port string) (*http.Server, string) {
 	mux := http.NewServeMux()
 
 	// Auth handlers
-	mux.HandleFunc("/register", registerNewUser)
-	mux.HandleFunc("/newpassword", updatePassword)
-	mux.HandleFunc("/regenerate", regenerateNewAPIKeys)
+	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		registerNewUser(w, r, queries)
+	})
+	mux.HandleFunc("/newpassword", func(w http.ResponseWriter, r *http.Request) {
+		updatePassword(w, r, queries)
+	})
+	mux.HandleFunc("/regenerate", func(w http.ResponseWriter, r *http.Request) {
+		regenerateNewAPIKeys(w, r, queries)
+	})
 
 	// WebSocket Connection
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[SERVER] /ws called from %s", r.RemoteAddr)
-		handleWSEndpoint(w, r, wsManager.newConnChan)
+		handleWSEndpoint(w, r, wsManager.newConnChan, queries)
 	})
 
 	server := &http.Server{

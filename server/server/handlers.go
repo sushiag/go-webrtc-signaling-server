@@ -12,11 +12,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var queries = newDefaultDB()
-
 // Registration ---
 
-func registerNewUser(w http.ResponseWriter, r *http.Request) {
+func registerNewUser(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
 	var rqst struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -85,7 +83,7 @@ func registerNewUser(w http.ResponseWriter, r *http.Request) {
 
 // --- LOGIN USER VIA API-KEY ---
 
-func getUserFromAPIKey(r *http.Request) (*db.User, error) {
+func getUserFromAPIKey(r *http.Request, queries *db.Queries) (*db.User, error) {
 	apiKey := r.Header.Get("X-API-Key")
 	if apiKey == "" {
 		// fallback if some clients send Authorization header instead
@@ -107,7 +105,7 @@ func getUserFromAPIKey(r *http.Request) (*db.User, error) {
 
 // -- REGENERATE API Key ---
 
-func regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request) {
+func regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
 	var rqst struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -156,7 +154,7 @@ func regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func updatePassword(w http.ResponseWriter, r *http.Request) {
+func updatePassword(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
 	var rqst struct {
 		Username    string `json:"username"`
 		OldPassword string `json:"old_password"`

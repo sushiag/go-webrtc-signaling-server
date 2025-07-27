@@ -9,13 +9,14 @@ import (
 	smsg "signaling-msgs"
 
 	"github.com/gorilla/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 )
 
 func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v smsg.MessageAnyPayload) error {
 	c.Outgoing <- v
 	return nil
 }
-func (wsm *WebSocketManager) Authenticate(r *http.Request) (uint64, bool) {
+func (wsm *WebSocketManager) Authenticate(r *http.Request, queries *db.Queries) (uint64, bool) {
 	apikey := r.Header.Get("X-Api-Key")
 	if apikey == "" {
 		log.Printf("[AUTHENTICATION] Missing API key")
@@ -33,7 +34,7 @@ func (wsm *WebSocketManager) Authenticate(r *http.Request) (uint64, bool) {
 }
 
 // this handles the initial API key authentication via HTTP
-func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request) {
+func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request, queries db.Queries) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -65,8 +66,8 @@ func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request) {
-	userID, ok := wsm.Authenticate(r)
+func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
+	userID, ok := wsm.Authenticate(r, queries)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return

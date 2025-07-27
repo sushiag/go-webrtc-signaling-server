@@ -6,17 +6,18 @@ import (
 	"strconv"
 
 	"github.com/gorilla/websocket"
+	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 
 	smsg "signaling-msgs"
 )
 
-func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Connection) {
+func handleWSEndpoint(w http.ResponseWriter, r *http.Request, newConnCh chan *Connection, queries *db.Queries) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	user, err := getUserFromAPIKey(r)
+	user, err := getUserFromAPIKey(r, queries)
 	if err != nil {
 		log.Printf("[WS] Unauthorized WebSocket attempt: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
