@@ -1,20 +1,25 @@
-# WebRTC Signaling Server & Client in Go (For Rust Integration)
+# WebRTC Signaling Server & Client in Go
 
 ## Objectives:
 - A signaling server in Go using WebSockets to help clients find and connect with each other.
 - A WebRTC client in Go that talks to the server and handles ICE candidates and session details.
-- An FFI (Foreign Function Interface) so Rust can use the Go WebRTC client.
+- REST API for user authenthication ('/ws', '/register', /updatepassword' and '/regenerate')
+- Sqlite for lightweight and storage
+- End-to-End test using tesify
+- Channel-based conncurreny (no 'sync.' beside using in End-to-End testings)
+
 
 ## Overview
-This project is a WebRTC signaling server implemented in Go with FFI bindings for Rust. It handles peer discovery, WebSocket-based signaling, API key authentication, and session management. The client-side WebRTC logic is also managed in Go, while the UI is handled separately using Svelte or Rust.
+This project is a WebRTC signaling server & client implemented in Go using SQLite as the database.
 
 ## Features
 - WebSocket-based signaling
-- API key authentication
 - ICE candidate exchange and restart handling
 - Room management and peer discovery
 - DataChannel error handling
 - STUN server configuration
+- User registration, Authentication using API-Key to connect to the websocket,  update password and API-Key generation for websocket authentication.
+- Lightweight SQLite
 
 ## Installation
 ### Prerequisites
@@ -38,15 +43,7 @@ This project is a WebRTC signaling server implemented in Go with FFI bindings fo
    ```sh
    go run main.go
    ```
-
-## API Reference
-### WebSocket Messages
-- `offer` – Sent when a peer creates an SDP offer.
-- `answer` – Sent when a peer responds with an SDP answer.
-- `ice-candidate` – Sent when a new ICE candidate is discovered.
-- `join` – Used to join a signaling room.
-- `leave` – Used to leave a signaling room.
-
+   
 ## Troubleshooting
 ### Common Issues
 #### 1. WebSocket Connection Fails
@@ -57,13 +54,6 @@ This project is a WebRTC signaling server implemented in Go with FFI bindings fo
 - Verify STUN server configuration.
 - Check if network restrictions block WebRTC traffic.
 
-#### 3. Rust Compilation Issues (Windows)
-- Ensure Visual Studio Build Tools are installed.
-- Run:
-  ```sh
-  rustup show
-  ```
-  and confirm `msvc` toolchain is used.
 
 ## Contribution Guidelines
 1. Fork the repository and create a new branch.
