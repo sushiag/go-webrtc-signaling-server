@@ -52,7 +52,7 @@ type WebSocketManager struct {
 	newConnChan    chan *Connection
 }
 
-// this handles connection that starts its own goroutine
+// This handles connection that starts its own goroutine
 type Connection struct {
 	UserID       uint64
 	Conn         *websocket.Conn
@@ -60,7 +60,7 @@ type Connection struct {
 	Disconnected chan<- uint64
 }
 
-// this initializes a new manager
+// This initializes a new manager
 func NewWebSocketManager() *WebSocketManager {
 	wsm := &WebSocketManager{
 		Connections:    make(map[uint64]*Connection),
@@ -75,6 +75,7 @@ func NewWebSocketManager() *WebSocketManager {
 	return wsm
 }
 
+// This handles the channels for the client connections
 func (wsm *WebSocketManager) run() {
 	for {
 		select {

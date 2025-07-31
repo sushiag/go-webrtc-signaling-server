@@ -6,6 +6,7 @@ import (
 	smsg "signaling-msgs"
 )
 
+// This is adds a users to the roomID it requests, if the user has already joined it will log it then updadates the room state.
 func (wsm *WebSocketManager) addUserToRoom(roomID uint64, joiningUserID uint64) {
 	log.Printf("[DEBUG] adding user %d to room %d", joiningUserID, roomID)
 
@@ -54,6 +55,7 @@ func (wsm *WebSocketManager) addUserToRoom(roomID uint64, joiningUserID uint64) 
 	log.Printf("[WS] User %d joined room %d", joiningUserID, roomID)
 }
 
+// This checks if the users are in the same room ID
 func (wsm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool {
 	room, exists := wsm.Rooms[roomID]
 	if !exists {
@@ -68,6 +70,7 @@ func (wsm *WebSocketManager) AreInSameRoom(roomID uint64, userIDs []uint64) bool
 	return true
 }
 
+// This creates a room with a Host
 func (wsm *WebSocketManager) createRoom(hostID uint64) uint64 {
 	roomID := wsm.nextRoomID
 	wsm.nextRoomID++
@@ -91,6 +94,7 @@ func (wsm *WebSocketManager) createRoom(hostID uint64) uint64 {
 	return roomID
 }
 
+// This notifies if a user has discconected from the signaling server
 func (wsm *WebSocketManager) disconnectUser(userID uint64) {
 	// Close and remove the user's connection
 	if conn, exists := wsm.Connections[userID]; exists {

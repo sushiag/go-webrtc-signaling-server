@@ -9,6 +9,7 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 )
 
+// This opens the SQLite database connection the the given filename
 func NewDatabase(filename string) (*db.Queries, *sql.DB) {
 	dsn := fmt.Sprintf("file:%s?cache=shared", filename)
 	conn, err := sql.Open("sqlite3", dsn)
@@ -22,6 +23,7 @@ func NewDatabase(filename string) (*db.Queries, *sql.DB) {
 	return db.New(conn), conn
 }
 
+// This reads the schema SQL file
 func applySchema(conn *sql.DB, path string) error {
 	schemaSQL, err := ioutil.ReadFile(path)
 	if err != nil {

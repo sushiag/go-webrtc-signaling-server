@@ -10,6 +10,7 @@ import (
 	smsg "signaling-msgs"
 )
 
+// This represents the input and output channels for the signaling communication of clients for the test.
 type signalingChannels struct {
 	in  chan smsg.MessageRawJSONPayload
 	out chan smsg.MessageAnyPayload

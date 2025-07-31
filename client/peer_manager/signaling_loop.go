@@ -9,9 +9,11 @@ import (
 	smsg "signaling-msgs"
 )
 
+// This handles the incoming signaling messages and routes it in the respectively
 func (pm *PeerManager) signalingLoop(signalingIn <-chan smsg.MessageRawJSONPayload) {
 	for msg := range signalingIn {
 		switch msg.MsgType {
+		// This handles the client when joining a room and then creates an SDP offer for each of the client active in the rooom
 		case smsg.RoomJoined:
 			{
 				var payload smsg.RoomJoinedPayload
@@ -29,6 +31,7 @@ func (pm *PeerManager) signalingLoop(signalingIn <-chan smsg.MessageRawJSONPaylo
 			}
 		case smsg.SDP:
 			{
+				// This handles the incoming SDP message (offer/answer)
 				var payload smsg.SDPPayload
 				if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 					log.Printf("[ERROR] failed to unmarshal SDP payload")
@@ -58,6 +61,7 @@ func (pm *PeerManager) signalingLoop(signalingIn <-chan smsg.MessageRawJSONPaylo
 			}
 		case smsg.ICECandidate:
 			{
+				// This handle the incoming ICE Candites and add ii to the eixsting/offered peer connection
 				var payload smsg.ICECandidatePayload
 				if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 					log.Printf("[ERROR] failed to unmarshal ICE candidate payload")

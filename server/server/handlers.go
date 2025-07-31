@@ -12,8 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Registration ---
-
+// Registration
 func registerNewUser(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
 	var rqst struct {
 		Username string `json:"username"`
@@ -81,7 +80,7 @@ func registerNewUser(w http.ResponseWriter, r *http.Request, queries *db.Queries
 	}
 }
 
-// --- LOGIN USER VIA API-KEY ---
+// LOGIN USER VIA API-KEY
 
 func getUserFromAPIKey(r *http.Request, queries *db.Queries) (*db.User, error) {
 	apiKey := r.Header.Get("X-API-Key")
@@ -103,7 +102,7 @@ func getUserFromAPIKey(r *http.Request, queries *db.Queries) (*db.User, error) {
 	return &user, nil
 }
 
-// -- REGENERATE API Key ---
+//REGENERATE API Key
 
 func regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
 	var rqst struct {
@@ -154,6 +153,7 @@ func regenerateNewAPIKeys(w http.ResponseWriter, r *http.Request, queries *db.Qu
 
 }
 
+// PASSWORD UPDATE
 func updatePassword(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
 	var rqst struct {
 		Username    string `json:"username"`

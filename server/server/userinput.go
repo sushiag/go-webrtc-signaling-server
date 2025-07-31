@@ -13,10 +13,12 @@ type Handler struct {
 	Queries *db.Queries
 }
 
+// This validates the username
 var (
 	usernameReg = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,15}$`)
 )
 
+// This accepts only ASCII
 func onlyASCII(in string) bool {
 	for _, r := range in {
 		if r < 32 || r > 126 { // no chinese char allowed
@@ -26,15 +28,17 @@ func onlyASCII(in string) bool {
 	return true
 }
 
+// Checks if there's no whitespace, and returns false/true
 func noWhitespace(in string) bool {
 	for _, r := range in {
-		if unicode.IsSpace(r) { // no white allowed
+		if unicode.IsSpace(r) {
 			return true
 		}
 	}
 	return false
 }
 
+// This checks if the username field meets the requirememts
 func checkUsernameField(username string) error {
 	switch {
 	case username == "":
@@ -56,6 +60,7 @@ func checkUsernameField(username string) error {
 	return nil
 }
 
+// This checks if the password meets the requirements
 func checkPasswordField(password string) error {
 	switch {
 	case password == "":

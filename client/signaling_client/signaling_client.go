@@ -13,6 +13,7 @@ import (
 	smsg "signaling-msgs"
 )
 
+// This represents a websocket client that communicates with the signaling server
 type SignalingClient struct {
 	ClientID     uint64
 	SignalingIn  <-chan smsg.MessageRawJSONPayload
@@ -24,11 +25,13 @@ type SignalingClient struct {
 	joinRoom   chan smsg.MessageRawJSONPayload
 }
 
+// This represents how a messages is being sent to the server and wait for the responnd
 type roomCommand struct {
 	msg    *smsg.MessageAnyPayload
 	respCh chan<- error
 }
 
+// This handles the creation and connection of a the signaling client to the signaling server, it also authenthicates using the API-Key.
 func NewSignalingClient(wsEndpoint string, apiKey string) (*SignalingClient, error) {
 	client := &SignalingClient{}
 
@@ -106,6 +109,7 @@ func NewSignalingClient(wsEndpoint string, apiKey string) (*SignalingClient, err
 	return client, nil
 }
 
+// This handles the request to create a new signaling room and waits for a response, it returns a room ID or an error.
 func (c *SignalingClient) CreateRoom() (uint64, error) {
 	var resp smsg.MessageRawJSONPayload
 	if c.createRoom == nil {
@@ -128,6 +132,7 @@ func (c *SignalingClient) CreateRoom() (uint64, error) {
 	return respMsg.RoomID, err
 }
 
+// This handles the request to join an existing room and wait for a response, it returns either a list of active client ID or an error.
 func (c *SignalingClient) JoinRoom(roomID uint64) ([]uint64, error) {
 	var resp smsg.MessageRawJSONPayload
 	if c.joinRoom == nil {
@@ -159,6 +164,7 @@ func (c *SignalingClient) JoinRoom(roomID uint64) ([]uint64, error) {
 	return respMsg.ClientsInRoom, err
 }
 
+// This handles the request to leave room.
 func (c *SignalingClient) LeaveRoom() {
 	c.SignalingOut <- smsg.MessageAnyPayload{
 		MsgType: smsg.LeaveRoom,

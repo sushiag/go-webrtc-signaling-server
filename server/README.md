@@ -55,30 +55,6 @@ Example: Messages Type
 | w, r	  	| Standard HTTP request/response													 |
 | newConnCH | Channel used to pass new connection into the system.		   						 |
 
-
-## structs Types
-
-`type WebSocketManager struct {
-	Connections    map[uint64]*Connection
-	Rooms          map[uint64]*Room
-	nextUserID     uint64
-	nextRoomID     uint64
-	messageChan    chan *smsg.MessageRawJSONPayload
-	disconnectChan chan uint64
-	newConnChan    chan *Connection
-}`
-
-This tracks connected users, manages rooms, assign unique IDs to users and rooms, routes signalling messaages and cleans up disonnected users.
-
-`type Connection struct {
-	UserID       uint64
-	Conn         *websocket.Conn
-	Outgoing     chan smsg.MessageAnyPayload
-	Disconnected chan<- uint64
-}`
-
-Each user connections has a unique ID, websocket connections, outgoing channel for sending messagess and a disconnected channel to notify WebsocketMananger on closing.
-
 ## Room Cycle and Connection Management
 
 - Room Creation 
@@ -107,8 +83,6 @@ JoinOrder: The squences of users joined
 | handleWSEndpoint()	| This handles incoming /ws upgrade request from the client and authenticates from via API-Key. |
 | StartSSever()			| This launches the HTTP server that authenticates and handles websocket signaling.			    |
 | NewWebsockerManager()	| This manages the Websocket connections.														|
-|
-
 
 # register Package
 

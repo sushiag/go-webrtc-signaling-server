@@ -7,6 +7,7 @@ import (
 	smsg "signaling-msgs"
 )
 
+// This handles the messages from the signaling client
 func (wsm *WebSocketManager) handleMessage(msg *smsg.MessageRawJSONPayload) {
 
 	// TODO:
@@ -69,6 +70,7 @@ func (wsm *WebSocketManager) handleMessage(msg *smsg.MessageRawJSONPayload) {
 	}
 }
 
+// This handles the connected users from the signaling client
 func (wsm *WebSocketManager) handleNewConnection(conn *Connection) {
 	log.Printf("[WS] User %d connected", conn.UserID)
 	conn.Disconnected = wsm.disconnectChan
@@ -83,7 +85,4 @@ func (wsm *WebSocketManager) handleNewConnection(conn *Connection) {
 
 	wsm.Connections[conn.UserID] = conn
 
-	// NOTE: idk what this is for but im keeping it as a comment just in case it's
-	// important
-	// wsm.flushBufferedMessages(userID)
 }

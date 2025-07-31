@@ -12,10 +12,13 @@ import (
 	"github.com/sushiag/go-webrtc-signaling-server/server/server/db"
 )
 
+// This wraps a send into outgoing
 func (wsm *WebSocketManager) SafeWriteJSON(c *Connection, v smsg.MessageAnyPayload) error {
 	c.Outgoing <- v
 	return nil
 }
+
+// This extracts the x-api-key from the HTTP handlers and checks the user API-Key
 func (wsm *WebSocketManager) Authenticate(r *http.Request, queries *db.Queries) (uint64, bool) {
 	apikey := r.Header.Get("X-Api-Key")
 	if apikey == "" {
@@ -33,7 +36,7 @@ func (wsm *WebSocketManager) Authenticate(r *http.Request, queries *db.Queries) 
 	return uint64(user.ID), true
 }
 
-// this handles the initial API key authentication via HTTP
+// This handles the initial API key authentication via HTTP
 func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request, queries db.Queries) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -66,6 +69,7 @@ func (wsm *WebSocketManager) AuthHandler(w http.ResponseWriter, r *http.Request,
 	})
 }
 
+// This authenticates the client before upgrading the websocket
 func (wsm *WebSocketManager) Handler(w http.ResponseWriter, r *http.Request, queries *db.Queries) {
 	userID, ok := wsm.Authenticate(r, queries)
 	if !ok {

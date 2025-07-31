@@ -1,6 +1,6 @@
-# WVERTC CLIENT
+### WVERTC CLIENT
 
-## Packages
+# Packages
 
 - signaling_client 
 - client (client.go, auth_helpers.go)
@@ -25,13 +25,6 @@ GET / with API-Key
 
 # struct types
 
-type Client struct {
-	sClient *signaling.SignalingClient // WebSocket signaling layer
-	pm      *pm.PeerManager            // Handles peer connections
-}
-
-
-- This represents a client connecting to the server, managing rooms, and sending/receivinng peer messages.
 
 type Credentials struct {
 	Username string
@@ -56,6 +49,8 @@ type Credentials struct {
 | SendDataToPeer()   | peerID, uint64, data []byte,  error | Sends data to a peer over WebRTC.         |
 | GetClientID()      | Returns the unique client ID        | assigned by the server                    |
 
+
+
 ## signaling_client
 
 This package implements the websocket-based signaling client used for creating/joining/leaving room in a WebRTC-based p2p communication system.
@@ -69,17 +64,6 @@ This contains the following:
 - - Establish and manage a websocket connection with the signaling server.
 
 # struct types
-
-type SignalingClient struct {
-	ClientID     uint64
-	SignalingIn  <-chan smsg.MessageRawJSONPayload
-	SignalingOut chan<- smsg.MessageAnyPayload
-
-	createRoom chan smsg.MessageRawJSONPayload
-	joinRoom   chan smsg.MessageRawJSONPayload
-}
-
-- This represent the core signaling client used to communicate over websockets.
 
 # Websocket internals
 
@@ -105,6 +89,12 @@ The Channels allows communication between the client and higher-level logic like
 | SignalingIn    | chan MessageRawJsonPayload   | Receives messages from the server        |
 | SignalingOut   | chan MessageAnyPayLoad       | Used to send signaling messages to server|
 
+
+# Notes 
+
+- This avoids the use of sync related, and locks.
+- Malformed client ID from the server will cause the client to fail upon setup.
+
 ## peer_manager Package
 
 This package handles the full lifecycle and signaling logic for the Webrtc peer connections in a client. It offers, answer, exhange ICE candidates and peer-states a room of users.
@@ -114,40 +104,6 @@ This contains the following:
 - Maintains an active maps of peers/clientID.
 - sets remotes descriptions
 - avoids handling repeats so it deduplicates signaling messages.
-
-
-# struct types 
-
-type PeerManager struct {
-	peers        map[uint64]*peer
-	signalingOut chan<- smsg.MessageAnyPayload
-	dataChOpened chan uint64
-	peerData     chan PeerDataMsg
-}
-
-- This represents the PeerManger, a main component that maintains the active WebRTC peers in a map. This sends/receives signaling messages (SDP AND ICE) -- as well as manage evevens for the data channels and icoming data from peers.
-
-type peer struct {
-	conn   *webrtc.PeerConnection
-	dataCh *webrtc.DataChannel
-}
-
-- This represents a single peer connection that includes both the PeerConnection and DataChannel.
-
-type PeerDataMsg {
-	From  uint64
-	Data {}byte
-}
-
-- This represents the data messages from peers, which incluudes the peer sender's ID.
-
-type sendICE struct {
-	forPeer uint64
-	ice *webrtc.ICECandidate
-}
-
-- This represents the internal tracker for the ICE candidates before sending to peers.
-
 
 # Peer Manager Function
 

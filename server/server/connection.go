@@ -9,6 +9,7 @@ import (
 	smsg "signaling-msgs"
 )
 
+// This creates and starts a new websocket connection hanlder. this creates a seperate goroutine reading for incoming/outgoing messages
 func NewConnection(userID uint64, conn *websocket.Conn, inboundMessages chan<- *smsg.MessageRawJSONPayload, disconnectOut chan<- uint64) *Connection {
 	c := &Connection{
 		UserID:       userID,
