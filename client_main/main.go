@@ -42,8 +42,6 @@ func handleWindowEvents(
 ) error {
 	var ops op.Ops
 
-	uiEvents := make([]interactionEvent, 0, 8)
-
 	for {
 		ev := window.Event()
 		switch ev := ev.(type) {
@@ -57,8 +55,14 @@ func handleWindowEvents(
 				gtx := app.NewContext(&ops, ev)
 
 				captureGlobalKeyEvents(gtx, appState, uiSystem)
-				captureComponentEvents(gtx, *uiSystem.interactables, &uiEvents)
-				processInteractionEvents(appState, &uiEvents, *uiSystem.states, *uiSystem.graphics)
+				captureAndProcessEvents(
+					gtx,
+					appState,
+					*uiSystem.interactables,
+					*uiSystem.states,
+					*uiSystem.graphics,
+				)
+				declareEventRegions(gtx, *uiSystem.interactables)
 				drawGraphics(gtx, *uiSystem.graphics, uiSystem.textShaper)
 
 				// update the display
@@ -99,48 +103,76 @@ func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui uiSystem) {
 	}
 }
 
-func captureComponentEvents(gtx layout.Context, iteractables system[interactableComponent], outEvents *[]interactionEvent) {
+func captureAndProcessEvents(
+	gtx layout.Context,
+	appState *appState,
+	interactables system[interactableComponent],
+	states system[stateComponent],
+	graphics system[graphicsComponent],
+) {
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
+	filters := make([]event.Filter, 0, 2)
+	for idx, comp := range interactables.components {
+		if comp.isDisabled {
+			continue
+		}
+		entity := interactables.getEntity(idx)
+
+		filters = comp.getEventFilters(filters)
+
+		for {
+			event, ok := gtx.Event(filters...)
+			if !ok {
+				break
+			}
+
+			processEvent(event, entity, appState, states, graphics)
+		}
+
+		filters = filters[:0]
+	}
+}
+
+func declareEventRegions(gtx layout.Context, iteractables system[interactableComponent]) {
 	for _, interactable := range iteractables.components {
 		if interactable.isDisabled {
 			continue
 		}
-		interactable.captureEvents(gtx, outEvents)
+		interactable.declareEventRegion(gtx)
 	}
 }
 
-func processInteractionEvents(
+func processEvent(
+	event event.Event,
+	entity entity,
 	appState *appState,
-	outEvents *[]interactionEvent,
-	state system[stateComponent],
+	states system[stateComponent],
 	graphics system[graphicsComponent],
 ) {
 	switch appState.currentPage {
 	case apploginPage:
-		for _, ev := range *outEvents {
-			if ev.entityID == appState.login.loginBtn {
-				ptrEv, ok := ev.kind.(pointer.Event)
-				if !ok {
-					continue
+		if entity == appState.login.loginBtn {
+			ptrEv, ok := event.(pointer.Event)
+			if !ok {
+				return
+			}
+
+			if s, idx, ok := states.getComponent(entity); ok {
+				nextState := s.processBtnEvent(ptrEv.Kind)
+				states.components[idx].state = nextState
+
+				if g, idx, ok := graphics.getComponent(entity); ok {
+					graphics.components[idx].bgColor = g.colors[nextState]
 				}
 
-				if s, idx, ok := state.getComponent(ev.entityID); ok {
-					state.components[idx].state = s.processBtnEvent(ptrEv.Kind)
-
-					if g, idx, ok := graphics.getComponent(ev.entityID); ok {
-						graphics.components[idx].bgColor = g.colors[s.state]
-					}
-
-					if ptrEv.Kind == pointer.Press {
-						fmt.Println("login pressed")
-					}
+				if ptrEv.Kind == pointer.Press {
+					fmt.Println("login pressed")
 				}
 			}
 		}
 	case appMainPage:
 	}
-
-	// clear events
-	*outEvents = (*outEvents)[:0]
 }
 
 func drawGraphics(gtx layout.Context, graphics system[graphicsComponent], textShaper *text.Shaper) {

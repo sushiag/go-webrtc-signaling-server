@@ -21,12 +21,7 @@ type interactableComponent struct {
 	isDisabled bool
 }
 
-type interactionEvent struct {
-	entityID uint32
-	kind     event.Event
-}
-
-func (c interactableComponent) captureEvents(gtx layout.Context, outEvents *[]interactionEvent) {
+func (c interactableComponent) declareEventRegion(gtx layout.Context) {
 	x0 := c.posX
 	y0 := c.posY
 	x1 := c.posX + c.width
@@ -61,14 +56,28 @@ func (c interactableComponent) captureEvents(gtx layout.Context, outEvents *[]in
 	}
 
 	event.Op(gtx.Ops, c.tag)
+}
 
-	// TODO: move this out
-	for {
-		ev, ok := gtx.Event(filters...)
-		if !ok {
-			break
+func (c interactableComponent) getEventFilters(filters []event.Filter) []event.Filter {
+	if c.ptrEvFlags != 0 {
+		pointerFilter := pointer.Filter{
+			Target:  c.tag,
+			Kinds:   c.ptrEvFlags,
+			ScrollX: pointer.ScrollRange{Min: -100, Max: 100},
+			ScrollY: pointer.ScrollRange{Min: -100, Max: 100},
 		}
-
-		*outEvents = append(*outEvents, interactionEvent{c.tag, ev})
+		filters = append(filters, pointerFilter)
 	}
+
+	if c.keyEv {
+		keyFilter := key.Filter{
+			Focus:    nil,
+			Required: 0,
+			Optional: 0,
+			Name:     "",
+		}
+		filters = append(filters, keyFilter)
+	}
+
+	return filters
 }

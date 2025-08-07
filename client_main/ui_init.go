@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"gioui.org/font/gofont"
 	"gioui.org/io/pointer"
 	"gioui.org/text"
@@ -25,9 +23,14 @@ func initUIEntities(appState *appState) uiSystem {
 	}
 
 	appState.colorPalette = makeColorPalette(uiSystem)
-	appState.login.loginBtn = makeButton(uiSystem, "test", colorPurpleDarker, colorPurpleLight, colorPurpleDark, colorWhite)
-
-	fmt.Println(len(uiSystem.graphics.components))
+	appState.login.loginBtn = makeButton(
+		uiSystem,
+		"test",
+		colorPurpleDarker,
+		colorPurpleLight,
+		colorPurpleDark,
+		colorWhite,
+	)
 
 	return uiSystem
 }

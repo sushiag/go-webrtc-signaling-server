@@ -1,6 +1,8 @@
 package main
 
-import "gioui.org/io/pointer"
+import (
+	"gioui.org/io/pointer"
+)
 
 type stateComponent struct {
 	kind  entityKind
