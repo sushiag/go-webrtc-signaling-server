@@ -56,10 +56,10 @@ func handleWindowEvents(
 				// reset the operations (required by gio)
 				gtx := app.NewContext(&ops, ev)
 
-				captureGlobalKeyEvents(gtx, appState, &uiSystem)
-				captureComponentEvents(gtx, uiSystem.interactables, &uiEvents)
-				processInteractionEvents(appState, &uiEvents, uiSystem.states, uiSystem.graphics)
-				drawGraphics(gtx, uiSystem.graphics, uiSystem.textShaper)
+				captureGlobalKeyEvents(gtx, appState, uiSystem)
+				captureComponentEvents(gtx, *uiSystem.interactables, &uiEvents)
+				processInteractionEvents(appState, &uiEvents, *uiSystem.states, *uiSystem.graphics)
+				drawGraphics(gtx, *uiSystem.graphics, uiSystem.textShaper)
 
 				// update the display
 				ev.Frame(gtx.Ops)
@@ -68,7 +68,7 @@ func handleWindowEvents(
 	}
 }
 
-func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui *uiSystem) {
+func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui uiSystem) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	event.Op(gtx.Ops, state)
 
@@ -91,17 +91,16 @@ func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui *uiSystem) {
 		}
 
 		if keyEv.State == key.Press {
-			if colorPalette, ok := ui.graphics[state.colorPalette]; ok {
-				colorPalette.isDisabled = !colorPalette.isDisabled
-				ui.graphics[state.colorPalette] = colorPalette
+			if g, idx, ok := ui.graphics.getComponent(state.colorPalette); ok {
+				ui.graphics.components[idx].isDisabled = !g.isDisabled
 			}
 		}
 
 	}
 }
 
-func captureComponentEvents(gtx layout.Context, iteractables map[entity]interactableComponent, outEvents *[]interactionEvent) {
-	for _, interactable := range iteractables {
+func captureComponentEvents(gtx layout.Context, iteractables system[interactableComponent], outEvents *[]interactionEvent) {
+	for _, interactable := range iteractables.components {
 		if interactable.isDisabled {
 			continue
 		}
@@ -112,8 +111,8 @@ func captureComponentEvents(gtx layout.Context, iteractables map[entity]interact
 func processInteractionEvents(
 	appState *appState,
 	outEvents *[]interactionEvent,
-	stateComps map[entity]stateComponent,
-	graphicsComps map[entity]graphicsComponent,
+	state system[stateComponent],
+	graphics system[graphicsComponent],
 ) {
 	switch appState.currentPage {
 	case apploginPage:
@@ -124,18 +123,17 @@ func processInteractionEvents(
 					continue
 				}
 
-				if state, ok := stateComps[ev.entityID]; ok {
-					newState := state.processBtnEvent(ptrEv.Kind)
+				if s, idx, ok := state.getComponent(ev.entityID); ok {
+					state.components[idx].state = s.processBtnEvent(ptrEv.Kind)
 
-					comp := graphicsComps[ev.entityID]
-					comp.bgColor = comp.colors[newState]
-					graphicsComps[ev.entityID] = comp
+					if g, idx, ok := graphics.getComponent(ev.entityID); ok {
+						graphics.components[idx].bgColor = g.colors[s.state]
+					}
 
 					if ptrEv.Kind == pointer.Press {
 						fmt.Println("login pressed")
 					}
 				}
-
 			}
 		}
 	case appMainPage:
@@ -145,16 +143,16 @@ func processInteractionEvents(
 	*outEvents = (*outEvents)[:0]
 }
 
-func drawGraphics(gtx layout.Context, graphics map[entity]graphicsComponent, textShaper *text.Shaper) {
+func drawGraphics(gtx layout.Context, graphics system[graphicsComponent], textShaper *text.Shaper) {
 	defer clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops).Pop()
 
 	// fill background color
 	paint.Fill(gtx.Ops, colorPalette[colorGray])
 
-	for _, graphic := range graphics {
-		if graphic.isDisabled {
+	for _, graphics := range graphics.components {
+		if graphics.isDisabled {
 			continue
 		}
-		graphic.draw(gtx, textShaper)
+		graphics.draw(gtx, textShaper)
 	}
 }

@@ -11,7 +11,7 @@ import (
 )
 
 type interactableComponent struct {
-	entityID   uint32
+	tag        entity
 	posX       int
 	posY       int
 	width      int
@@ -34,7 +34,7 @@ func (c interactableComponent) captureEvents(gtx layout.Context, outEvents *[]in
 	defer clip.Rect(image.Rect(int(x0), int(y0), int(x1), int(y1))).Push(gtx.Ops).Pop()
 
 	key.InputHintOp{
-		Tag:  c.entityID,
+		Tag:  c.tag,
 		Hint: key.HintAny,
 	}.Add(gtx.Ops)
 
@@ -42,7 +42,7 @@ func (c interactableComponent) captureEvents(gtx layout.Context, outEvents *[]in
 
 	if c.ptrEvFlags != 0 {
 		pointerFilter := pointer.Filter{
-			Target:  c.entityID,
+			Target:  c.tag,
 			Kinds:   c.ptrEvFlags,
 			ScrollX: pointer.ScrollRange{Min: -100, Max: 100},
 			ScrollY: pointer.ScrollRange{Min: -100, Max: 100},
@@ -52,7 +52,7 @@ func (c interactableComponent) captureEvents(gtx layout.Context, outEvents *[]in
 
 	if c.keyEv {
 		keyFilter := key.Filter{
-			Focus:    c.entityID,
+			Focus:    nil,
 			Required: 0,
 			Optional: 0,
 			Name:     "",
@@ -60,14 +60,15 @@ func (c interactableComponent) captureEvents(gtx layout.Context, outEvents *[]in
 		filters = append(filters, keyFilter)
 	}
 
-	event.Op(gtx.Ops, c.entityID)
+	event.Op(gtx.Ops, c.tag)
 
+	// TODO: move this out
 	for {
 		ev, ok := gtx.Event(filters...)
 		if !ok {
 			break
 		}
 
-		*outEvents = append(*outEvents, interactionEvent{c.entityID, ev})
+		*outEvents = append(*outEvents, interactionEvent{c.tag, ev})
 	}
 }

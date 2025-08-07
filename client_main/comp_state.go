@@ -3,9 +3,8 @@ package main
 import "gioui.org/io/pointer"
 
 type stateComponent struct {
-	entityID uint32
-	kind     entityKind
-	state    uint8
+	kind  entityKind
+	state uint8
 }
 
 type buttonState = uint8
@@ -27,16 +26,18 @@ const (
 	lblStateFocused
 )
 
-func (s *stateComponent) processBtnEvent(event pointer.Kind) buttonState {
+// Returns the next state after given some event
+func (s stateComponent) processBtnEvent(event pointer.Kind) buttonState {
 	switch event {
 	case pointer.Press:
-		s.state = btnStatePressed
+		return btnStatePressed
 	case pointer.Enter:
-		s.state = btnStateHovered
+		return btnStateHovered
 	case pointer.Leave:
-		s.state = btnStateIdle
+		return btnStateIdle
 	case pointer.Release:
-		s.state = btnStateHovered
+		return btnStateHovered
+	default:
+		return s.state
 	}
-	return s.state
 }

@@ -17,7 +17,6 @@ type graphicsComponent struct {
 	posY       int
 	text       string
 	colors     [8]uint8
-	entityID   uint32
 	width      int
 	height     int
 	bgColor    uint8
