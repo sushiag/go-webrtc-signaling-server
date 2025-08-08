@@ -1,85 +1,84 @@
 package main
 
 import (
-	"gioui.org/font/gofont"
 	"gioui.org/io/pointer"
 	"gioui.org/text"
 )
 
-type uiSystem struct {
+type systems struct {
 	states        *system[stateComponent]
+	bBoxes        *system[boundingBoxComponent]
 	interactables *system[interactableComponent]
 	graphics      *system[graphicsComponent]
 	textShaper    *text.Shaper
 }
 
-func initUIEntities(appState *appState) uiSystem {
-	textShaper := text.NewShaper(text.WithCollection(gofont.Collection()))
-	uiSystem := uiSystem{
-		newSystem[stateComponent](),
-		newSystem[interactableComponent](),
-		newSystem[graphicsComponent](),
-		textShaper,
-	}
-
-	appState.colorPalette = makeColorPalette(uiSystem)
+func initEntities(appState *appState, systems systems) {
+	appState.colorPalette = makeColorPalette(systems)
 	appState.login.loginBtn = makeButton(
-		uiSystem,
-		"test",
-		colorPurpleDarker,
-		colorPurpleLight,
-		colorPurpleDark,
-		colorWhite,
+		systems,
+		"login",
+		100, 50,
+		colorPurpleDarker, colorPurpleLight, colorPurpleDark, colorWhite,
 	)
-
-	return uiSystem
+	appState.login.signupBtn = makeButton(
+		systems,
+		"sign up",
+		100, 50,
+		colorPurpleDarker, colorPurpleDark, colorPurpleLight, colorWhite,
+	)
+	appState.login.anotherBtn = makeButton(
+		systems,
+		"big",
+		200, 100,
+		colorPurpleDarker, colorPurpleLight, colorPurpleDark, colorWhite,
+	)
 }
 
-func makeColorPalette(ui uiSystem) entity {
+func makeColorPalette(ui systems) entity {
 	e := newEntity()
 
-	component := graphicsComponent{
-		posX:       0,
-		posY:       0,
-		entityKind: entityKindColorPalette,
+	graphics := graphicsComponent{
+		kind:       gkColorPalette,
+		isDisabled: true,
 	}
-	ui.graphics.addComponent(e, component)
+	ui.graphics.addComponent(e, graphics)
+
+	boundingBox := boundingBoxComponent{[2]int{0, 0}, [2]int{0, 0}}
+	ui.bBoxes.addComponent(e, boundingBox)
 
 	return e
 }
 
-func makeButton(ui uiSystem, txt string, colorDisabled, colorIdle, colorPressed, colorHovered colorID) entity {
+func makeButton(
+	ui systems,
+	txt string,
+	width, height int,
+	colorDisabled, colorIdle, colorPressed, colorHovered colorID,
+) entity {
 	e := newEntity()
 
-	stateComponent := stateComponent{kind: entityKindButton, state: 0}
-	ui.states.addComponent(e, stateComponent)
+	state := stateComponent{kind: gkButton, state: 0}
+	ui.states.addComponent(e, state)
 
-	x := 100
-	y := 100
+	boundingBox := boundingBoxComponent{size: [2]int{width, height}}
+	ui.bBoxes.addComponent(e, boundingBox)
 
-	interactableComponent := interactableComponent{
+	interactable := interactableComponent{
 		tag:        e,
-		posX:       x,
-		posY:       y,
-		width:      100,
-		height:     50,
 		ptrEvFlags: pointer.Enter | pointer.Leave | pointer.Press | pointer.Release,
 	}
-	ui.interactables.addComponent(e, interactableComponent)
+	ui.interactables.addComponent(e, interactable)
 
 	colors := [8]colorID{colorDisabled, colorIdle, colorPressed, colorHovered}
-	graphicsComponent := graphicsComponent{
-		posX:       x,
-		posY:       y,
-		text:       txt,
-		textColor:  colorWhite,
-		colors:     colors,
-		width:      100,
-		height:     50,
-		bgColor:    colors[btnStateIdle],
-		entityKind: entityKindButton,
+	graphics := graphicsComponent{
+		text:      txt,
+		textColor: colorWhite,
+		colors:    colors,
+		bgColor:   colors[btnStateIdle],
+		kind:      gkButton,
 	}
-	ui.graphics.addComponent(e, graphicsComponent)
+	ui.graphics.addComponent(e, graphics)
 
 	return e
 }

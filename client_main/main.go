@@ -1,33 +1,44 @@
 package main
 
 import (
-	"fmt"
-	"image"
+	"log"
 	"os"
-	"time"
 
 	"gioui.org/app"
+	"gioui.org/font/gofont"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
+	sys "gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
+	"gioui.org/unit"
 )
 
 func main() {
 	go func() {
 		window := new(app.Window)
-
-		ticker := time.NewTicker(time.Second)
-		ticker.Stop()
+		window.Option(func(m unit.Metric, c *app.Config) {
+			c.Title = "chatapp"
+			c.Focused = true
+		})
+		window.Perform(sys.ActionRaise)
 
 		appState := appState{}
-		uiSystem := initUIEntities(&appState)
+		systems := systems{
+			newSystem[stateComponent](),
+			newSystem[boundingBoxComponent](),
+			newSystem[interactableComponent](),
+			newSystem[graphicsComponent](),
+			text.NewShaper(text.WithCollection(gofont.Collection())),
+		}
 
-		handleWindowEvents(window, uiSystem, &appState)
+		initEntities(&appState, systems)
+
+		handleWindowEvents(window, systems, &appState)
 
 		os.Exit(0)
 	}()
@@ -37,7 +48,7 @@ func main() {
 // Starts a blocking loop that will handle window events
 func handleWindowEvents(
 	window *app.Window,
-	uiSystem uiSystem,
+	systems systems,
 	appState *appState,
 ) error {
 	var ops op.Ops
@@ -50,20 +61,26 @@ func handleWindowEvents(
 
 		case app.FrameEvent:
 			{
-
 				// reset the operations (required by gio)
 				gtx := app.NewContext(&ops, ev)
 
-				captureGlobalKeyEvents(gtx, appState, uiSystem)
+				// layout step
+				switch appState.currentPage {
+				case apploginPage:
+					layoutLoginPage(gtx, *systems.bBoxes, appState.login)
+				case appMainPage:
+				}
+
+				captureGlobalKeyEvents(gtx, appState, systems)
 				captureAndProcessEvents(
 					gtx,
 					appState,
-					*uiSystem.interactables,
-					*uiSystem.states,
-					*uiSystem.graphics,
+					*systems.interactables,
+					*systems.states,
+					*systems.graphics,
 				)
-				declareEventRegions(gtx, *uiSystem.interactables)
-				drawGraphics(gtx, *uiSystem.graphics, uiSystem.textShaper)
+				declareEventRegions(gtx, *systems.bBoxes, *systems.interactables)
+				drawGraphics(gtx, *systems.bBoxes, *systems.graphics, systems.textShaper)
 
 				// update the display
 				ev.Frame(gtx.Ops)
@@ -72,7 +89,7 @@ func handleWindowEvents(
 	}
 }
 
-func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui uiSystem) {
+func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui systems) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	event.Op(gtx.Ops, state)
 
@@ -134,12 +151,19 @@ func captureAndProcessEvents(
 	}
 }
 
-func declareEventRegions(gtx layout.Context, iteractables system[interactableComponent]) {
-	for _, interactable := range iteractables.components {
-		if interactable.isDisabled {
+func declareEventRegions(gtx layout.Context, bBoxes system[boundingBoxComponent], iteractables system[interactableComponent]) {
+	for idx, iComp := range iteractables.components {
+		if iComp.isDisabled {
 			continue
 		}
-		interactable.declareEventRegion(gtx)
+
+		entity := iteractables.getEntity(idx)
+		bb, _, ok := bBoxes.getComponent(entity)
+		if !ok {
+			log.Panicf("tried to declare an event region for '%d' without a bounding box", entity)
+		}
+
+		iComp.declareEventRegion(gtx, bb)
 	}
 }
 
@@ -152,39 +176,44 @@ func processEvent(
 ) {
 	switch appState.currentPage {
 	case apploginPage:
-		if entity == appState.login.loginBtn {
+		for idx, s := range states.components {
 			ptrEv, ok := event.(pointer.Event)
 			if !ok {
 				return
 			}
 
-			if s, idx, ok := states.getComponent(entity); ok {
-				nextState := s.processBtnEvent(ptrEv.Kind)
-				states.components[idx].state = nextState
+			nextState := s.processBtnEvent(ptrEv.Kind)
+			states.components[idx].state = nextState
 
-				if g, idx, ok := graphics.getComponent(entity); ok {
-					graphics.components[idx].bgColor = g.colors[nextState]
-				}
-
-				if ptrEv.Kind == pointer.Press {
-					fmt.Println("login pressed")
-				}
+			if g, idx, ok := graphics.getComponent(entity); ok {
+				graphics.components[idx].bgColor = g.colors[nextState]
 			}
 		}
 	case appMainPage:
 	}
 }
 
-func drawGraphics(gtx layout.Context, graphics system[graphicsComponent], textShaper *text.Shaper) {
-	defer clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops).Pop()
-
+func drawGraphics(
+	gtx layout.Context,
+	bBoxes system[boundingBoxComponent],
+	graphics system[graphicsComponent],
+	textShaper *text.Shaper,
+) {
 	// fill background color
 	paint.Fill(gtx.Ops, colorPalette[colorGray])
 
-	for _, graphics := range graphics.components {
-		if graphics.isDisabled {
+	for idx, g := range graphics.components {
+		if g.isDisabled {
 			continue
 		}
-		graphics.draw(gtx, textShaper)
+
+		entity := graphics.getEntity(idx)
+
+		bb, _, ok := bBoxes.getComponent(entity)
+		if !ok {
+			log.Panicf("[ERR] tried to draw graphics for entity '%d' with no bounding box", entity)
+		}
+
+		g.draw(gtx, bb, textShaper)
 	}
 }

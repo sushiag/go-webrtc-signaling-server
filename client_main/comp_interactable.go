@@ -1,32 +1,21 @@
 package main
 
 import (
-	"image"
-
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
-	"gioui.org/op/clip"
 )
 
 type interactableComponent struct {
-	tag        entity
-	posX       int
-	posY       int
-	width      int
-	height     int
 	ptrEvFlags pointer.Kind
+	tag        entity
 	keyEv      bool
 	isDisabled bool
 }
 
-func (c interactableComponent) declareEventRegion(gtx layout.Context) {
-	x0 := c.posX
-	y0 := c.posY
-	x1 := c.posX + c.width
-	y1 := c.posY + c.height
-	defer clip.Rect(image.Rect(int(x0), int(y0), int(x1), int(y1))).Push(gtx.Ops).Pop()
+func (c interactableComponent) declareEventRegion(gtx layout.Context, bb boundingBoxComponent) {
+	defer bb.clip().Push(gtx.Ops).Pop()
 
 	key.InputHintOp{
 		Tag:  c.tag,

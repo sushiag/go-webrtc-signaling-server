@@ -2,14 +2,6 @@ package main
 
 type entity = uint32
 
-type entityKind = uint8
-
-const (
-	entityKindColorPalette entityKind = iota
-	entityKindLabel
-	entityKindButton
-)
-
 // TODO: we will need to turn this into an atomic if we start making entities on
 // separate threads but here is fine for now
 var entityIDCounter = entity(0)

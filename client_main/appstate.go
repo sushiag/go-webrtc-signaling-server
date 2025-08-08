@@ -15,7 +15,9 @@ const (
 )
 
 type loginPageMetadata struct {
-	loginBtn entity
+	loginBtn   entity
+	signupBtn  entity
+	anotherBtn entity
 }
 
 type mainPageMetadata struct {

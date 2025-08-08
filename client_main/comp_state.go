@@ -5,7 +5,7 @@ import (
 )
 
 type stateComponent struct {
-	kind  entityKind
+	kind  graphicsKind
 	state uint8
 }
 
@@ -38,6 +38,8 @@ func (s stateComponent) processBtnEvent(event pointer.Kind) buttonState {
 	case pointer.Leave:
 		return btnStateIdle
 	case pointer.Release:
+		// TODO: we need to check if the pointer is still inside the 
+		// box when released
 		return btnStateHovered
 	default:
 		return s.state

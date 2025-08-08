@@ -1,4 +1,4 @@
-module timer
+module chatapp
 
 go 1.24.4
 
