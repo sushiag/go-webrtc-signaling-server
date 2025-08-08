@@ -1,10 +1,12 @@
 package main
 
 type appState struct {
-	colorPalette entity
-	currentPage  appPage
-	login        loginPageMetadata
-	main         mainPageMetadata
+	login           loginPageMetadata
+	colorPalette    entity
+	focusedInput    entity
+	currentPage     appPage
+	hasFocusedInput bool
+	main            mainPageMetadata
 }
 
 type appPage = uint8
@@ -15,9 +17,11 @@ const (
 )
 
 type loginPageMetadata struct {
-	loginTitle entity
-	loginBtn   entity
-	signupBtn  entity
+	loginTitle    entity
+	usernameInput entity
+	passwordInput entity
+	loginBtn      entity
+	signupBtn     entity
 }
 
 type mainPageMetadata struct {

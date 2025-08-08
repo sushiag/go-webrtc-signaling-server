@@ -10,12 +10,16 @@ func layoutLoginPage(
 	loginPage loginPageMetadata,
 ) {
 	windowBB := bbFromGtx(gtx)
-	title, _, _ := bboxes.getComponentRef(loginPage.loginTitle)
-	loginBtn, _, _ := bboxes.getComponentRef(loginPage.loginBtn)
-	signupBtn, _, _ := bboxes.getComponentRef(loginPage.signupBtn)
+	title, _ := bboxes.getComponentRef(loginPage.loginTitle)
+	username, _ := bboxes.getComponentRef(loginPage.usernameInput)
+	password, _ := bboxes.getComponentRef(loginPage.passwordInput)
+	loginBtn, _ := bboxes.getComponentRef(loginPage.loginBtn)
+	signupBtn, _ := bboxes.getComponentRef(loginPage.signupBtn)
 
 	flexItems := []flexItem{
-		{title, 0.0, margin{0, 0, 0, 100}},
+		{title, 0.0, margin{0, 0, 0, 60}},
+		{username, 0.0, margin{0, 0, 0, 30}},
+		{password, 0.0, margin{0, 0, 0, 50}},
 		{loginBtn, 0.0, margin{0, 0, 0, 30}},
 		{signupBtn, 0.0, margin{0, 0, 0, 0}},
 	}

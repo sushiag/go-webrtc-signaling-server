@@ -21,18 +21,32 @@ func initEntities(appState *appState, systems systems) {
 		colorWhite,
 		colorTransparent,
 	)
+	appState.login.usernameInput = makeTextInput(
+		systems,
+		300, 50,
+		"username",
+		colorGray, colorWhite, colorBlack, colorWhite,
+		colorPurpleDark, colorPurpleDarker, colorWhite, colorPurpleLight,
+	)
+	appState.login.passwordInput = makeTextInput(
+		systems,
+		300, 50,
+		"password",
+		colorGray, colorWhite, colorBlack, colorWhite,
+		colorPurpleDark, colorPurpleDarker, colorWhite, colorPurpleLight,
+	)
 	appState.login.loginBtn = makeButton(
 		systems,
 		"login",
 		100, 50,
-		colorPurpleDarker, colorPurpleLight, colorPurpleDark, colorWhite,
-		colorBlack, colorWhite, colorWhite, colorBlack,
+		colorPurpleDarker, colorPink, colorPurpleDark, colorWhite,
+		colorGray, colorWhite, colorWhite, colorBlack,
 	)
 	appState.login.signupBtn = makeButton(
 		systems,
 		"sign up",
 		100, 50,
-		colorPurpleDarker, colorPurpleDark, colorPurpleLight, colorWhite,
-		colorBlack, colorWhite, colorWhite, colorBlack,
+		colorPurpleDarker, colorPurpleLight, colorPurpleLight, colorWhite,
+		colorGray, colorWhite, colorWhite, colorBlack,
 	)
 }

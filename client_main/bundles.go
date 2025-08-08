@@ -84,3 +84,42 @@ func makeButton(
 
 	return e
 }
+
+func makeTextInput(
+	systems systems,
+	width, height int,
+	placeholderText string,
+	textColorDisabled, textColorIdle, textColorHovered, textColorFocused colorID,
+	colorDisabled, colorIdle, colorHovered, colorFocused colorID,
+) entity {
+	e := newEntity()
+
+	state := stateComponent{kind: bundleTextInput, state: 0}
+	systems.states.addComponent(e, state)
+
+	boundingBox := boundingBoxComponent{size: [2]int{width, height}}
+	systems.bBoxes.addComponent(e, boundingBox)
+
+	interactable := interactableComponent{
+		tag:        e,
+		ptrEvFlags: pointer.Enter | pointer.Leave | pointer.Press | pointer.Release,
+	}
+	systems.interactables.addComponent(e, interactable)
+
+	colors := [8]colorID{colorDisabled, colorIdle, colorHovered, colorFocused}
+	textColors := [8]colorID{textColorDisabled, textColorIdle, textColorHovered, textColorFocused}
+	graphics := graphicsComponent{
+		text:            placeholderText,
+		placeholderText: placeholderText,
+		textColor:       colorWhite,
+		textColors:      textColors,
+		bgColors:        colors,
+		bgColor:         colors[btnStateIdle],
+		borderColor:     colorBlack,
+		border:          border{2, 2, 2, 2},
+		kind:            bundleTextInput,
+	}
+	systems.graphics.addComponent(e, graphics)
+
+	return e
+}

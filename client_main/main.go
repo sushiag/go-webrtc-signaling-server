@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -75,9 +76,7 @@ func handleWindowEvents(
 				captureAndProcessEvents(
 					gtx,
 					appState,
-					*systems.interactables,
-					*systems.states,
-					*systems.graphics,
+					systems,
 				)
 				declareEventRegions(gtx, *systems.bBoxes, *systems.interactables)
 				drawGraphics(gtx, *systems.bBoxes, *systems.graphics, systems.textShaper)
@@ -89,18 +88,17 @@ func handleWindowEvents(
 	}
 }
 
-func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui systems) {
+func captureGlobalKeyEvents(gtx layout.Context, appState *appState, ui systems) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	event.Op(gtx.Ops, state)
+	event.Op(gtx.Ops, appState)
 
+	keyFilter := key.Filter{
+		Focus:    nil,
+		Required: 0,
+		Optional: key.ModCtrl,
+		Name:     "",
+	}
 	for {
-		// toggle color palette
-		keyFilter := key.Filter{
-			Focus:    nil,
-			Required: key.ModCtrl,
-			Optional: 0,
-			Name:     "P",
-		}
 		ev, ok := gtx.Event(keyFilter)
 		if !ok {
 			break
@@ -111,22 +109,43 @@ func captureGlobalKeyEvents(gtx layout.Context, state *appState, ui systems) {
 			return
 		}
 
-		if keyEv.State == key.Press {
-			if g, idx, ok := ui.graphics.getComponent(state.colorPalette); ok {
-				ui.graphics.components[idx].isDisabled = !g.isDisabled
+		if keyEv.State == key.Press && keyEv.Modifiers&key.ModCtrl != 0 {
+			// toggle color palette
+			if g, ok := ui.graphics.getComponentRef(appState.colorPalette); ok {
+				g.isDisabled = !g.isDisabled
 			}
 		}
 
+	}
+
+	if appState.hasFocusedInput {
+		for {
+			ev, ok := gtx.Event(key.FocusFilter{Target: appState.focusedInput})
+			if !ok {
+				break
+			}
+
+			editEv, ok := ev.(key.EditEvent)
+			if !ok {
+				return
+			}
+
+			if g, ok := ui.graphics.getComponentRef(appState.focusedInput); ok {
+				g.text += editEv.Text
+			}
+		}
 	}
 }
 
 func captureAndProcessEvents(
 	gtx layout.Context,
 	appState *appState,
-	interactables system[interactableComponent],
-	states system[stateComponent],
-	graphics system[graphicsComponent],
+	systems systems,
 ) {
+	interactables := *systems.interactables
+	states := *systems.states
+	graphics := *systems.graphics
+
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	filters := make([]event.Filter, 0, 2)
@@ -135,6 +154,10 @@ func captureAndProcessEvents(
 			continue
 		}
 		entity := interactables.getEntity(idx)
+		stateComponent, ok := states.getComponentRef(entity)
+		if !ok {
+			log.Panicln("an interactable entity is missing a state component:", entity)
+		}
 
 		filters = comp.getEventFilters(filters)
 
@@ -144,7 +167,35 @@ func captureAndProcessEvents(
 				break
 			}
 
-			processEvent(event, entity, appState, states, graphics)
+			ptrEv, ok := event.(pointer.Event)
+			if !ok {
+				return
+			}
+
+			switch appState.currentPage {
+			case apploginPage:
+
+				nextState := stateComponent.ptrInteraction(ptrEv.Kind)
+				stateComponent.state = nextState
+
+				g, ok := graphics.getComponentRef(entity)
+				if ok {
+					g.bgColor = g.bgColors[nextState]
+					g.textColor = g.textColors[nextState]
+				}
+				if stateComponent.kind == bundleTextInput && nextState == txtInputStateFocused {
+					appState.focusedInput = entity
+					appState.hasFocusedInput = true
+					gtx.Execute(key.FocusCmd{Tag: entity})
+					fmt.Println("focused")
+					if ok && g.text == g.placeholderText {
+						g.text = ""
+					}
+				}
+			case appMainPage:
+				{
+				}
+			}
 		}
 
 		filters = filters[:0]
@@ -167,33 +218,6 @@ func declareEventRegions(gtx layout.Context, bBoxes system[boundingBoxComponent]
 	}
 }
 
-func processEvent(
-	event event.Event,
-	entity entity,
-	appState *appState,
-	states system[stateComponent],
-	graphics system[graphicsComponent],
-) {
-	switch appState.currentPage {
-	case apploginPage:
-		for idx, s := range states.components {
-			ptrEv, ok := event.(pointer.Event)
-			if !ok {
-				return
-			}
-
-			nextState := s.processBtnEvent(ptrEv.Kind)
-			states.components[idx].state = nextState
-
-			if g, idx, ok := graphics.getComponent(entity); ok {
-				graphics.components[idx].bgColor = g.bgColors[nextState]
-				graphics.components[idx].textColor = g.textColors[nextState]
-			}
-		}
-	case appMainPage:
-	}
-}
-
 func drawGraphics(
 	gtx layout.Context,
 	bBoxes system[boundingBoxComponent],
@@ -201,7 +225,7 @@ func drawGraphics(
 	textShaper *text.Shaper,
 ) {
 	// fill background color
-	paint.Fill(gtx.Ops, colorPalette[colorGray])
+	paint.Fill(gtx.Ops, colorPalette[colorPurpleDark])
 
 	for idx, g := range graphics.components {
 		if g.isDisabled {

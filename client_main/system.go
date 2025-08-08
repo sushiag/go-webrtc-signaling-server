@@ -49,11 +49,11 @@ func (s system[T]) getComponent(entity entity) (T, int, bool) {
 	}
 }
 
-func (s system[T]) getComponentRef(entity entity) (*T, int, bool) {
+func (s system[T]) getComponentRef(entity entity) (*T, bool) {
 	if idx, ok := s.entityComp[entity]; ok {
-		return &(s.components[idx]), idx, true
+		return &(s.components[idx]), true
 	} else {
-		return nil, 0, false
+		return nil, false
 	}
 }
 
