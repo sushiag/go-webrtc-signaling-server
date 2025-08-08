@@ -1,6 +1,8 @@
 package main
 
-import "gioui.org/layout"
+import (
+	"gioui.org/layout"
+)
 
 func layoutLoginPage(
 	gtx layout.Context,
@@ -8,17 +10,21 @@ func layoutLoginPage(
 	loginPage loginPageMetadata,
 ) {
 	windowBB := bbFromGtx(gtx)
-	loginBtnBB, loginBtnIdx, _ := bboxes.getComponent(loginPage.loginBtn)
-	signupBtnBB, signupBtnIdx, _ := bboxes.getComponent(loginPage.signupBtn)
-	anotherBtnBB, anotherBtnIdx, _ := bboxes.getComponent(loginPage.anotherBtn)
+	title, _, _ := bboxes.getComponentRef(loginPage.loginTitle)
+	loginBtn, _, _ := bboxes.getComponentRef(loginPage.loginBtn)
+	signupBtn, _, _ := bboxes.getComponentRef(loginPage.signupBtn)
+
+	flexItems := []flexItem{
+		{title, 0.0, margin{0, 0, 0, 100}},
+		{loginBtn, 0.0, margin{0, 0, 0, 30}},
+		{signupBtn, 0.0, margin{0, 0, 0, 0}},
+	}
+
 	layoutFlex(
 		windowBB,
 		flexVertical,
-		flexSpaceEnd,
+		flexSpaceSide,
 		flexAlignMiddle,
-		[]flexItem{{&loginBtnBB, 0.0}, {&signupBtnBB, 0.0}, {&anotherBtnBB, 0.0}},
+		flexItems,
 	)
-	bboxes.updateComponent(loginBtnIdx, loginBtnBB)
-	bboxes.updateComponent(signupBtnIdx, signupBtnBB)
-	bboxes.updateComponent(anotherBtnIdx, anotherBtnBB)
 }

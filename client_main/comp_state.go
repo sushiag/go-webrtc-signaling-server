@@ -5,7 +5,7 @@ import (
 )
 
 type stateComponent struct {
-	kind  graphicsKind
+	kind  bundleKind
 	state uint8
 }
 

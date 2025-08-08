@@ -4,6 +4,8 @@ import (
 	"math"
 )
 
+type margin = [4]float64
+
 func layoutCenter(outer boundingBoxComponent, inner *boundingBoxComponent) {
 	inner.pos[0] = outer.pos[0] + ((outer.size[0] - inner.size[0]) / 2)
 	inner.pos[1] = outer.pos[1] + ((outer.size[1] - inner.size[1]) / 2)
@@ -12,6 +14,8 @@ func layoutCenter(outer boundingBoxComponent, inner *boundingBoxComponent) {
 type flexItem struct {
 	bb   *boundingBoxComponent
 	flex float64
+	// left, right, top, bottom
+	margin [4]float64
 }
 
 type flexDirection = uint8
@@ -37,7 +41,6 @@ const (
 	flexSpaceSide
 )
 
-// NOTE: will change the sizes of the bounding boxes
 func layoutFlex(
 	parent boundingBoxComponent,
 	direction flexDirection,
@@ -47,6 +50,7 @@ func layoutFlex(
 ) {
 	primaryAxis := int(direction)
 	secondaryAxis := 1 - primaryAxis
+	marginAxis := primaryAxis * 2
 
 	totalFlex := 0.0
 	availableSpace := float64(parent.size[primaryAxis])
@@ -56,6 +60,7 @@ func layoutFlex(
 			totalFlex += c.flex
 		} else {
 			availableSpace -= float64(c.bb.size[primaryAxis])
+			availableSpace -= c.margin[marginAxis] + c.margin[marginAxis+1]
 		}
 	}
 
@@ -80,29 +85,30 @@ func layoutFlex(
 		}
 	}
 
-	for _, item := range items {
-		spaceOccupied := float64(item.bb.size[primaryAxis])
+	for i, item := range items {
+		itemSpaceOccupied := float64(item.bb.size[primaryAxis])
 		if item.flex > 0.0 {
-			spaceOccupied = math.Round(spacingIncrements * item.flex)
+			itemSpaceOccupied = math.Round(spacingIncrements * item.flex)
 		}
 
-		item.bb.size[primaryAxis] = int(spaceOccupied)
-		item.bb.pos[primaryAxis] = int(offset)
+		items[i].bb.size[primaryAxis] = int(itemSpaceOccupied)
+		items[i].bb.pos[primaryAxis] = int(offset + item.margin[marginAxis])
 
 		switch alignment {
 		case flexAlignMiddle:
-			item.bb.pos[secondaryAxis] = secondaryAxisMiddle - (item.bb.size[secondaryAxis] / 2)
+			items[i].bb.pos[secondaryAxis] = secondaryAxisMiddle - (item.bb.size[secondaryAxis] / 2)
 		case flexAlignStart:
-			item.bb.pos[secondaryAxis] = parent.pos[secondaryAxis]
+			items[i].bb.pos[secondaryAxis] = parent.pos[secondaryAxis]
 		case flexAlignEnd:
-			item.bb.pos[secondaryAxis] = parent.size[secondaryAxis] - item.bb.size[secondaryAxis]
+			items[i].bb.pos[secondaryAxis] = parent.size[secondaryAxis] - item.bb.size[secondaryAxis]
 		}
 
 		switch spacing {
 		case flexSpaceEnd, flexSpaceStart, flexSpaceSide:
-			offset += spaceOccupied
+			offset += itemSpaceOccupied
 		case flexSpaceBetween, flexSpaceAround:
-			offset += spaceOccupied + spaceAmount
+			offset += itemSpaceOccupied + spaceAmount
 		}
+		offset += item.margin[marginAxis] + item.margin[marginAxis+1]
 	}
 }

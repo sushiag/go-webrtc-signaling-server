@@ -49,6 +49,14 @@ func (s system[T]) getComponent(entity entity) (T, int, bool) {
 	}
 }
 
+func (s system[T]) getComponentRef(entity entity) (*T, int, bool) {
+	if idx, ok := s.entityComp[entity]; ok {
+		return &(s.components[idx]), idx, true
+	} else {
+		return nil, 0, false
+	}
+}
+
 // Updates the component at the given index with the given copy
 //
 // Panics: if given an index that doesn't exist

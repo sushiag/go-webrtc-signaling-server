@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"log"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -12,31 +13,24 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// TODO: rename this
-type graphicsKind = uint8
-
-const (
-	gkColorPalette graphicsKind = iota
-	entityKindLabel
-	gkButton
-)
-
 type graphicsComponent struct {
 	text       string
-	colors     [8]uint8
+	textColors [8]colorID
+	bgColors   [8]colorID
 	bgColor    uint8
 	textColor  uint8
-	textColors [2]uint8
-	kind       graphicsKind
+	kind       bundleKind
 	isDisabled bool
 }
 
 func (g graphicsComponent) draw(gtx layout.Context, bb boundingBoxComponent, textShaper *text.Shaper) {
 	switch g.kind {
-	case gkColorPalette:
+	case bundleLabel, bundleButton:
+		drawSquareWithText(gtx, bb, g, textShaper)
+	case bundleColorPalette:
 		drawColorPalette(gtx, bb)
-	case gkButton:
-		drawButton(gtx, bb, g, textShaper)
+	default:
+		log.Panicln("[ERR] draw function not defined for bundle:", g.kind)
 	}
 }
 
@@ -59,7 +53,7 @@ func drawColorPalette(gtx layout.Context, bb boundingBoxComponent) {
 
 }
 
-func drawButton(
+func drawSquareWithText(
 	gtx layout.Context,
 	bb boundingBoxComponent,
 	g graphicsComponent,
@@ -76,7 +70,7 @@ func drawButton(
 		textParams := text.Parameters{
 			Alignment: text.Middle,
 			PxPerEm:   textSize,
-			MaxLines:  1,
+			MaxLines:  0,
 			Truncator: "...",
 			MinWidth:  int(bb.size[0]),
 			MaxWidth:  int(bb.size[0]),
@@ -84,7 +78,7 @@ func drawButton(
 
 		drawCalls, _, height := renderText(gtx, textShaper, textParams, g.text, colorPalette[g.textColor], unit.Sp(textSize))
 
-		yOffset := (float32(bb.size[1]) - height) / 2.5
+		yOffset := (float64(bb.size[1]) - height) / 2.5
 		offset := image.Point{X: bb.pos[0], Y: bb.pos[1] + int(yOffset)}
 		offsetStack := op.Offset(offset).Push(gtx.Ops)
 

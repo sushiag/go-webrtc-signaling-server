@@ -23,7 +23,7 @@ func renderText(
 	txt string,
 	textColor color.NRGBA,
 	textSize unit.Sp,
-) ([]op.CallOp, float32, float32) {
+) ([]op.CallOp, float64, float64) {
 	textShaper.LayoutString(
 		textParams,
 		txt,
@@ -83,11 +83,11 @@ func renderText(
 		line = line[:0]
 	}
 
-	labelWidthf32 := float32(textWidth) / 64.0
-	labelHeightf32 := float32(textHeight) / 64.0
-	if labelHeightf32 == 0.0 {
-		labelHeightf32 = float32(textSize) / 64.0
+	labelWidthf64 := float64(textWidth) / 64.0
+	labelHeightf64 := float64(textHeight) / 64.0
+	if labelHeightf64 == 0.0 {
+		labelHeightf64 = float64(textSize) / 64.0
 	}
 
-	return drawCalls, labelWidthf32, labelHeightf32
+	return drawCalls, labelWidthf64, labelHeightf64
 }

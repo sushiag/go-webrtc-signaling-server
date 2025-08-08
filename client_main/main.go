@@ -186,7 +186,8 @@ func processEvent(
 			states.components[idx].state = nextState
 
 			if g, idx, ok := graphics.getComponent(entity); ok {
-				graphics.components[idx].bgColor = g.colors[nextState]
+				graphics.components[idx].bgColor = g.bgColors[nextState]
+				graphics.components[idx].textColor = g.textColors[nextState]
 			}
 		}
 	case appMainPage:
