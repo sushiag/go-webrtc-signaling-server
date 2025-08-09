@@ -1,21 +1,9 @@
 package main
 
-import (
-	"gioui.org/text"
-)
-
-type systems struct {
-	states        *system[stateComponent]
-	bBoxes        *system[boundingBoxComponent]
-	interactables *system[interactableComponent]
-	graphics      *system[graphicsComponent]
-	textShaper    *text.Shaper
-}
-
-func initEntities(appState *appState, systems systems) {
-	appState.colorPalette = makeColorPalette(systems)
+func initLoginPageEntities(appState *appState, sys system) {
+	appState.colorPalette = makeColorPalette(sys)
 	appState.login.loginTitle = makeLabel(
-		systems,
+		sys,
 		labelConfig{
 			width:     300,
 			height:    50,
@@ -25,7 +13,7 @@ func initEntities(appState *appState, systems systems) {
 		},
 	)
 	appState.login.usernameInput = makeTextInput(
-		systems,
+		sys,
 		textInputConfig{
 			width:             300,
 			height:            50,
@@ -41,7 +29,7 @@ func initEntities(appState *appState, systems systems) {
 		},
 	)
 	appState.login.passwordInput = makeTextInput(
-		systems,
+		sys,
 		textInputConfig{
 			width:             300,
 			height:            50,
@@ -57,7 +45,7 @@ func initEntities(appState *appState, systems systems) {
 		},
 	)
 	appState.login.loginBtn = makeButton(
-		systems,
+		sys,
 		buttonConfig{
 			width:             100,
 			height:            50,
@@ -73,7 +61,7 @@ func initEntities(appState *appState, systems systems) {
 		},
 	)
 	appState.login.signupBtn = makeButton(
-		systems,
+		sys,
 		buttonConfig{
 			width:             100,
 			height:            50,

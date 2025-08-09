@@ -6,15 +6,15 @@ import (
 
 func layoutLoginPage(
 	gtx layout.Context,
-	bboxes system[boundingBoxComponent],
+	sys system,
 	loginPage loginPageMetadata,
 ) {
 	windowBB := bbFromGtx(gtx)
-	title, _ := bboxes.getComponentRef(loginPage.loginTitle)
-	username, _ := bboxes.getComponentRef(loginPage.usernameInput)
-	password, _ := bboxes.getComponentRef(loginPage.passwordInput)
-	loginBtn, _ := bboxes.getComponentRef(loginPage.loginBtn)
-	signupBtn, _ := bboxes.getComponentRef(loginPage.signupBtn)
+	title := sys.getBBoxComponentRef(loginPage.loginTitle)
+	username := sys.getBBoxComponentRef(loginPage.usernameInput)
+	password := sys.getBBoxComponentRef(loginPage.passwordInput)
+	loginBtn := sys.getBBoxComponentRef(loginPage.loginBtn)
+	signupBtn := sys.getBBoxComponentRef(loginPage.signupBtn)
 
 	flexItems := []flexItem{
 		{title, 0.0, margin{0, 0, 0, 60}},

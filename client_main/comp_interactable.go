@@ -14,8 +14,8 @@ type interactableComponent struct {
 	isDisabled bool
 }
 
-func (c interactableComponent) declareEventRegion(gtx layout.Context, bb boundingBoxComponent) {
-	defer bb.clip().Push(gtx.Ops).Pop()
+func (c interactableComponent) declareEventRegion(gtx layout.Context, bbox boundingBoxComponent) {
+	defer bbox.clip().Push(gtx.Ops).Pop()
 
 	key.InputHintOp{
 		Tag:  c.tag,

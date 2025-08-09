@@ -8,8 +8,7 @@ import (
 	"gioui.org/font/gofont"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
-	sys "gioui.org/io/system"
+	gioSys "gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -25,20 +24,15 @@ func main() {
 			c.Title = "chatapp"
 			c.Focused = true
 		})
-		window.Perform(sys.ActionRaise)
+		window.Perform(gioSys.ActionRaise)
 
 		appState := appState{}
-		systems := systems{
-			newSystem[stateComponent](),
-			newSystem[boundingBoxComponent](),
-			newSystem[interactableComponent](),
-			newSystem[graphicsComponent](),
-			text.NewShaper(text.WithCollection(gofont.Collection())),
-		}
+		system := newSystem()
+		textShaper := text.NewShaper(text.WithCollection(gofont.Collection()))
 
-		initEntities(&appState, systems)
+		initLoginPageEntities(&appState, system)
 
-		handleWindowEvents(window, systems, &appState)
+		handleWindowEvents(window, system, textShaper, &appState)
 
 		os.Exit(0)
 	}()
@@ -48,7 +42,8 @@ func main() {
 // Starts a blocking loop that will handle window events
 func handleWindowEvents(
 	window *app.Window,
-	systems systems,
+	sys system,
+	textShaper *text.Shaper,
 	appState *appState,
 ) error {
 	var ops op.Ops
@@ -67,18 +62,18 @@ func handleWindowEvents(
 				// layout step
 				switch appState.currentPage {
 				case apploginPage:
-					layoutLoginPage(gtx, *systems.bBoxes, appState.login)
+					layoutLoginPage(gtx, sys, appState.login)
 				case appMainPage:
 				}
 
-				captureGlobalKeyEvents(gtx, appState, systems)
+				captureGlobalKeyEvents(gtx, appState, sys)
 				captureAndProcessEvents(
 					gtx,
 					appState,
-					systems,
+					sys,
 				)
-				declareEventRegions(gtx, *systems.bBoxes, *systems.interactables)
-				drawGraphics(gtx, *systems.bBoxes, *systems.graphics, systems.textShaper)
+				declareEventRegions(gtx, sys)
+				drawGraphics(gtx, sys, textShaper)
 
 				// update the display
 				ev.Frame(gtx.Ops)
@@ -87,7 +82,7 @@ func handleWindowEvents(
 	}
 }
 
-func captureGlobalKeyEvents(gtx layout.Context, appState *appState, ui systems) {
+func captureGlobalKeyEvents(gtx layout.Context, appState *appState, sys system) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	event.Op(gtx.Ops, appState)
 
@@ -110,7 +105,7 @@ func captureGlobalKeyEvents(gtx layout.Context, appState *appState, ui systems) 
 
 		if keyEv.State == key.Press && keyEv.Modifiers&key.ModCtrl != 0 {
 			// toggle color palette
-			if g, ok := ui.graphics.getComponentRef(appState.colorPalette); ok {
+			if g, ok := sys.tryGetGraphicsComponentRef(appState.colorPalette); ok {
 				g.isDisabled = !g.isDisabled
 			}
 		}
@@ -129,7 +124,7 @@ func captureGlobalKeyEvents(gtx layout.Context, appState *appState, ui systems) 
 				return
 			}
 
-			if g, ok := ui.graphics.getComponentRef(appState.focusedInput); ok {
+			if g, ok := sys.tryGetGraphicsComponentRef(appState.focusedInput); ok {
 				g.text += editEv.Text
 			}
 		}
@@ -139,104 +134,65 @@ func captureGlobalKeyEvents(gtx layout.Context, appState *appState, ui systems) 
 func captureAndProcessEvents(
 	gtx layout.Context,
 	appState *appState,
-	systems systems,
+	sys system,
 ) {
-	interactables := *systems.interactables
-	states := *systems.states
-	graphics := *systems.graphics
+	interactables := *sys.interactables
 
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	filters := make([]event.Filter, 0, 2)
-	for idx, comp := range interactables.components {
-		if comp.isDisabled {
+	for idx, iComp := range interactables {
+		if iComp.isDisabled {
 			continue
 		}
-		entity := interactables.getEntity(idx)
-		stateComponent, ok := states.getComponentRef(entity)
-		if !ok {
-			log.Panicln("an interactable entity is missing a state component:", entity)
-		}
+		entity := (*sys.interactablesEntity)[idx]
+		stateComponent := sys.getStateComponentRef(entity)
 
-		filters = comp.getEventFilters(filters)
+		filters = iComp.getEventFilters(filters)
 
-		for {
-			event, ok := gtx.Event(filters...)
-			if !ok {
-				break
+		switch appState.currentPage {
+		case apploginPage:
+			processEvLoginPage(gtx, appState, filters, sys, stateComponent, entity)
+		case appMainPage:
+			{
 			}
-
-			ptrEv, ok := event.(pointer.Event)
-			if !ok {
-				return
-			}
-
-			switch appState.currentPage {
-			case apploginPage:
-
-				nextState := stateComponent.ptrInteraction(ptrEv.Kind)
-				stateComponent.state = nextState
-
-				g, ok := graphics.getComponentRef(entity)
-				if ok {
-					g.bgColor = g.bgColors[nextState]
-					g.textColor = g.textColors[nextState]
-				}
-				if stateComponent.kind == bundleTextInput && nextState == txtInputStateFocused {
-					appState.focusedInput = entity
-					appState.hasFocusedInput = true
-					gtx.Execute(key.FocusCmd{Tag: entity})
-					if ok && g.text == g.placeholderText {
-						g.text = ""
-					}
-				}
-			case appMainPage:
-				{
-				}
-			}
+		default:
+			log.Println("[WARN] no event handler set for the current page:", appState.currentPage)
 		}
 
 		filters = filters[:0]
 	}
 }
 
-func declareEventRegions(gtx layout.Context, bBoxes system[boundingBoxComponent], iteractables system[interactableComponent]) {
-	for idx, iComp := range iteractables.components {
+func declareEventRegions(gtx layout.Context, sys system) {
+	for idx, iComp := range *sys.interactables {
 		if iComp.isDisabled {
 			continue
 		}
 
-		entity := iteractables.getEntity(idx)
-		bb, _, ok := bBoxes.getComponent(entity)
-		if !ok {
-			log.Panicf("tried to declare an event region for '%d' without a bounding box", entity)
-		}
+		entity := (*sys.interactablesEntity)[idx]
+		bboxComp := sys.getBBoxComponent(entity)
 
-		iComp.declareEventRegion(gtx, bb)
+		iComp.declareEventRegion(gtx, bboxComp)
 	}
 }
 
 func drawGraphics(
 	gtx layout.Context,
-	bBoxes system[boundingBoxComponent],
-	graphics system[graphicsComponent],
+	sys system,
 	textShaper *text.Shaper,
 ) {
 	// fill background color
 	paint.Fill(gtx.Ops, colorPalette[colorPurpleDark])
 
-	for idx, g := range graphics.components {
+	for idx, g := range *sys.graphics {
 		if g.isDisabled {
 			continue
 		}
 
-		entity := graphics.getEntity(idx)
+		entity := (*sys.graphicsEntity)[idx]
+		bbox := sys.getBBoxComponent(entity)
 
-		bb, _, ok := bBoxes.getComponent(entity)
-		if !ok {
-			log.Panicf("[ERR] tried to draw graphics for entity '%d' with no bounding box", entity)
-		}
-
-		g.draw(gtx, bb, textShaper)
+		g.draw(gtx, bbox, textShaper)
 	}
 }

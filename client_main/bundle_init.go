@@ -2,27 +2,21 @@ package main
 
 import "gioui.org/io/pointer"
 
-func makeColorPalette(systems systems) entity {
-	e := newEntity()
-
-	graphics := graphicsComponent{
+func makeColorPalette(sys system) entity {
+	graphicsComp := graphicsComponent{
 		kind:       bundleColorPalette,
 		isDisabled: true,
 	}
-	systems.graphics.addComponent(e, graphics)
 
 	boundingBox := boundingBoxComponent{[2]int{0, 0}, [2]int{0, 0}}
-	systems.bBoxes.addComponent(e, boundingBox)
 
-	return e
+	return sys.newEntity(graphicsComp, boundingBox)
 }
 
 func makeLabel(
-	systems systems,
+	sys system,
 	config labelConfig,
 ) entity {
-	e := newEntity()
-
 	graphics := graphicsComponent{
 		text:       config.text,
 		kind:       bundleLabel,
@@ -30,35 +24,28 @@ func makeLabel(
 		textColors: [8]colorID{config.textColor, config.textColor},
 		bgColor:    config.bgColor,
 	}
-	systems.graphics.addComponent(e, graphics)
 
 	boundingBox := boundingBoxComponent{[2]int{0, 0}, [2]int{config.width, config.height}}
-	systems.bBoxes.addComponent(e, boundingBox)
 
-	return e
+	return sys.newEntity(graphics, boundingBox)
 }
 
 func makeButton(
-	systems systems,
+	sys system,
 	config buttonConfig,
 ) entity {
-	e := newEntity()
-
-	state := stateComponent{kind: bundleButton, state: 0}
-	systems.states.addComponent(e, state)
+	stateComp := stateComponent{kind: bundleButton, state: 0}
 
 	boundingBox := boundingBoxComponent{size: [2]int{config.width, config.height}}
-	systems.bBoxes.addComponent(e, boundingBox)
 
-	interactable := interactableComponent{
-		tag:        e,
+	interactableComp := interactableComponent{
+		tag:        sys.nextEntity(),
 		ptrEvFlags: pointer.Enter | pointer.Leave | pointer.Press | pointer.Release,
 	}
-	systems.interactables.addComponent(e, interactable)
 
 	colors := [8]colorID{config.colorDisabled, config.colorIdle, config.colorPressed, config.colorHovered}
 	textColors := [8]colorID{config.textColorDisabled, config.textColorIdle, config.textColorPressed, config.textColorHovered}
-	graphics := graphicsComponent{
+	graphicsComp := graphicsComponent{
 		text:       config.text,
 		textColor:  colorWhite,
 		textColors: textColors,
@@ -66,32 +53,26 @@ func makeButton(
 		bgColor:    colors[btnStateIdle],
 		kind:       bundleButton,
 	}
-	systems.graphics.addComponent(e, graphics)
 
-	return e
+	return sys.newEntity(stateComp, boundingBox, interactableComp, graphicsComp)
 }
 
 func makeTextInput(
-	systems systems,
+	sys system,
 	config textInputConfig,
 ) entity {
-	e := newEntity()
+	stateComp := stateComponent{kind: bundleTextInput, state: 0}
 
-	state := stateComponent{kind: bundleTextInput, state: 0}
-	systems.states.addComponent(e, state)
+	bboxComp := boundingBoxComponent{size: [2]int{config.width, config.height}}
 
-	boundingBox := boundingBoxComponent{size: [2]int{config.width, config.height}}
-	systems.bBoxes.addComponent(e, boundingBox)
-
-	interactable := interactableComponent{
-		tag:        e,
+	interactableComp := interactableComponent{
+		tag:        sys.nextEntity(),
 		ptrEvFlags: pointer.Enter | pointer.Leave | pointer.Press | pointer.Release,
 	}
-	systems.interactables.addComponent(e, interactable)
 
 	colors := [8]colorID{config.colorDisabled, config.colorIdle, config.colorHovered, config.colorFocused}
 	textColors := [8]colorID{config.textColorDisabled, config.textColorIdle, config.textColorHovered, config.textColorFocused}
-	graphics := graphicsComponent{
+	graphicsComp := graphicsComponent{
 		text:            config.placeholderText,
 		placeholderText: config.placeholderText,
 		textColor:       colorWhite,
@@ -102,7 +83,6 @@ func makeTextInput(
 		border:          border{2, 2, 2, 2},
 		kind:            bundleTextInput,
 	}
-	systems.graphics.addComponent(e, graphics)
 
-	return e
+	return sys.newEntity(stateComp, bboxComp, interactableComp, graphicsComp)
 }

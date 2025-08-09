@@ -1,72 +1,127 @@
 package main
 
+import (
+	"log"
+	"math"
+	"reflect"
+)
+
 type entity = uint32
 
-// TODO: we will need to turn this into an atomic if we start making entities on
-// separate threads but here is fine for now
-var entityIDCounter = entity(0)
+type system struct {
+	db           *[]systemDBEntry
+	states       *[]stateComponent
+	statesEntity *[]entity
 
-func newEntity() entity {
-	id := entityIDCounter
-	entityIDCounter += 1
-	return id
+	bboxes       *[]boundingBoxComponent
+	bboxesEntity *[]entity
+
+	interactables       *[]interactableComponent
+	interactablesEntity *[]entity
+
+	graphics       *[]graphicsComponent
+	graphicsEntity *[]entity
 }
 
-type system[T any] struct {
-	// Component data
-	components []T
-	// Describes: component index -> entity
-	compEntity []entity
-	// Describes: entity -> component index
-	entityComp map[entity]int
+type systemDBEntry struct {
+	components [7]uint16
+	flags      uint8
 }
 
-func newSystem[T any]() *system[T] {
-	const defaultInitCapacity = 32
-	return &system[T]{
-		make([]T, 0, defaultInitCapacity),
-		make([]entity, 0, defaultInitCapacity),
-		make(map[entity]int, defaultInitCapacity),
+type systemFlag = uint8
+type componentKind = uint8
+
+const (
+	flagState systemFlag = 1 << iota
+	flagBBox
+	flagInteractable
+	flagGraphics
+)
+
+const (
+	compKindState componentKind = iota
+	compKindBBox
+	compKindInteractable
+	compKindGraphics
+)
+
+func newSystem() system {
+	const initCapacity = 8
+	db := make([]systemDBEntry, 0, initCapacity)
+	states := make([]stateComponent, 0, initCapacity)
+	statesEntity := make([]entity, 0, initCapacity)
+	bboxes := make([]boundingBoxComponent, 0, initCapacity)
+	bboxesEntity := make([]entity, 0, initCapacity)
+	interactables := make([]interactableComponent, 0, initCapacity)
+	interactablesEntity := make([]entity, 0, initCapacity)
+	graphics := make([]graphicsComponent, 0, initCapacity)
+	graphicsEntity := make([]entity, 0, initCapacity)
+	return system{
+		db:                  &db,
+		states:              &states,
+		statesEntity:        &statesEntity,
+		bboxes:              &bboxes,
+		bboxesEntity:        &bboxesEntity,
+		interactables:       &interactables,
+		interactablesEntity: &interactablesEntity,
+		graphics:            &graphics,
+		graphicsEntity:      &graphicsEntity,
 	}
 }
 
-// Adds a new component
-func (s *system[T]) addComponent(e entity, component T) {
-	s.entityComp[e] = len(s.components)
-	s.components = append(s.components, component)
-	s.compEntity = append(s.compEntity, e)
+func (sys *system) nextEntity() entity {
+	return entity(len(*sys.db))
 }
 
-// Tries to get the component for the given entity
-func (s system[T]) getComponent(entity entity) (T, int, bool) {
-	var component T
+func (sys *system) newEntity(components ...any) entity {
+	e := entity(len(*sys.db))
 
-	if idx, ok := s.entityComp[entity]; ok {
-		component = s.components[idx]
-		return component, idx, true
-	} else {
-		return component, 0, false
+	row := systemDBEntry{}
+
+	for _, comp := range components {
+		switch c := comp.(type) {
+		case stateComponent:
+			idx := len(*sys.states)
+			if idx > math.MaxUint16 {
+				log.Panicf("max number of state components reached")
+			}
+			row.components[compKindState] = uint16(idx)
+			row.flags |= flagState
+			*sys.states = append(*sys.states, c)
+			*sys.statesEntity = append(*sys.statesEntity, e)
+		case boundingBoxComponent:
+			idx := len(*sys.bboxes)
+			if idx > math.MaxUint16 {
+				log.Panicf("max number of bounding box components reached")
+			}
+			row.components[compKindBBox] = uint16(idx)
+			row.flags |= flagBBox
+			*sys.bboxes = append(*sys.bboxes, c)
+			*sys.bboxesEntity = append(*sys.bboxesEntity, e)
+		case interactableComponent:
+			idx := len(*sys.interactables)
+			if idx > math.MaxUint16 {
+				log.Panicf("max number of interactable components reached")
+			}
+			row.components[compKindInteractable] = uint16(idx)
+			row.flags |= flagInteractable
+			*sys.interactables = append(*sys.interactables, c)
+			*sys.interactablesEntity = append(*sys.interactablesEntity, e)
+		case graphicsComponent:
+			idx := len(*sys.graphics)
+			if idx > math.MaxUint16 {
+				log.Panicf("max number of graphics components reached")
+			}
+			row.components[compKindGraphics] = uint16(idx)
+			row.flags |= flagGraphics
+			*sys.graphics = append(*sys.graphics, c)
+			*sys.graphicsEntity = append(*sys.graphicsEntity, e)
+		default:
+			log.Panicln("invalid component type:", reflect.TypeOf(comp))
+		}
 	}
-}
 
-func (s system[T]) getComponentRef(entity entity) (*T, bool) {
-	if idx, ok := s.entityComp[entity]; ok {
-		return &(s.components[idx]), true
-	} else {
-		return nil, false
-	}
-}
+	*sys.db = append(*sys.db, row)
 
-// Updates the component at the given index with the given copy
-//
-// Panics: if given an index that doesn't exist
-func (s system[T]) updateComponent(idx int, component T) {
-	s.components[idx] = component
-}
-
-// Tries to get the entity for the given component index
-//
-// Panics: if given an index that doesn't exist
-func (s system[T]) getEntity(idx int) entity {
-	return s.compEntity[idx]
+	return e
 }
