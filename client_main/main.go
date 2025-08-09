@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
@@ -187,7 +186,6 @@ func captureAndProcessEvents(
 					appState.focusedInput = entity
 					appState.hasFocusedInput = true
 					gtx.Execute(key.FocusCmd{Tag: entity})
-					fmt.Println("focused")
 					if ok && g.text == g.placeholderText {
 						g.text = ""
 					}

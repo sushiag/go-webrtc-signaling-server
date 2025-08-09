@@ -44,7 +44,6 @@ const (
 func (g stateComponent) ptrInteraction(eventKind pointer.Kind) state {
 	switch g.kind {
 	case bundleButton:
-		log.Println("btn input")
 		return g.processBtnPtrEvent(eventKind)
 	case bundleTextInput:
 		return g.processTextInputPtrEvent(eventKind)
