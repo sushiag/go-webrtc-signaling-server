@@ -9,11 +9,11 @@ import (
 
 func processEvLoginPage(
 	gtx layout.Context,
-	focus *focusState,
+	app *appState,
 	ev event.Event,
 	sys system,
 	e entity,
-) {
+) bool {
 	stateComp := sys.getStateComponentRef(e)
 	graphicsComp, _, hasGraphics := sys.tryGetGraphicsComponentRef(e)
 
@@ -21,51 +21,60 @@ func processEvLoginPage(
 	case pointer.Event:
 		stateComp.handlePtrInteraction(event.Kind)
 
-		graphicsComp.bgColor = graphicsComp.bgColors[stateComp.state]
-		graphicsComp.textColor = graphicsComp.textColors[stateComp.state]
-
-		if graphicsComp.kind != bundleTextInput {
-			break
+		if hasGraphics {
+			graphicsComp.bgColor = graphicsComp.bgColors[stateComp.state]
+			graphicsComp.textColor = graphicsComp.textColors[stateComp.state]
 		}
 
-		// on focus
-		if stateComp.state != txtInputStateFocused {
-			break
-		}
-
-		// remove and update the last focused
-		if focus.hasFocusedInput && focus.focusedEntity != e {
-			lastFocused := focus.focusedEntity
-			gtx.Execute(key.FocusCmd{Tag: lastFocused})
-			stateComp := sys.getStateComponentRef(lastFocused)
-			stateComp.state = txtInputStateIdle
-			if lastGraphicsComp, _, ok := sys.tryGetGraphicsComponentRef(lastFocused); ok {
-				lastGraphicsComp.bgColor = graphicsComp.bgColors[stateComp.state]
-				lastGraphicsComp.textColor = graphicsComp.textColors[stateComp.state]
-
-				if lastGraphicsComp.text == "" {
-					lastGraphicsComp.text = lastGraphicsComp.placeholderText
-				}
+		if graphicsComp.kind == bundleButton {
+			if e == app.login.loginBtn && stateComp.state == btnStatePressed {
+				sys.reset()
+				app.currentPage = appMainPage
+				initMainPageEntities(app, sys)
+				return true
 			}
 		}
 
-		// update the current focused
-		focus.focusedEntity = e
-		focus.hasFocusedInput = true
+		if hasGraphics && graphicsComp.kind == bundleTextInput {
+			// on focus
+			if stateComp.state != txtInputStateFocused {
+				break
+			}
 
-		if graphicsComp.text == graphicsComp.placeholderText {
-			graphicsComp.text = ""
+			// remove and update the last focused
+			if app.focus.hasFocusedInput && app.focus.focusedEntity != e {
+				lastFocused := app.focus.focusedEntity
+				gtx.Execute(key.FocusCmd{Tag: lastFocused})
+				stateComp := sys.getStateComponentRef(lastFocused)
+				stateComp.state = txtInputStateIdle
+				if lastGraphicsComp, _, ok := sys.tryGetGraphicsComponentRef(lastFocused); ok {
+					lastGraphicsComp.bgColor = graphicsComp.bgColors[stateComp.state]
+					lastGraphicsComp.textColor = graphicsComp.textColors[stateComp.state]
+
+					if lastGraphicsComp.text == "" {
+						lastGraphicsComp.text = lastGraphicsComp.placeholderText
+					}
+				}
+			}
+
+			// update the current focused
+			app.focus.focusedEntity = e
+			app.focus.hasFocusedInput = true
+
+			if graphicsComp.text == graphicsComp.placeholderText {
+				graphicsComp.text = ""
+			}
+
+			gtx.Execute(key.FocusCmd{Tag: e})
 		}
 
-		gtx.Execute(key.FocusCmd{Tag: e})
-
 	case key.EditEvent:
-		if focus.hasFocusedInput && focus.focusedEntity == e && hasGraphics {
+		if app.focus.hasFocusedInput && app.focus.focusedEntity == e && hasGraphics {
 			graphicsComp.text += event.Text
 		}
 
 	case key.Event:
-		if focus.focusedEntity != e || !focus.hasFocusedInput {
+		if app.focus.focusedEntity != e || !app.focus.hasFocusedInput {
 			break
 		}
 
@@ -79,7 +88,7 @@ func processEvLoginPage(
 			}
 		case key.NameEscape:
 			gtx.Execute(key.FocusCmd{Tag: e})
-			focus.hasFocusedInput = false
+			app.focus.hasFocusedInput = false
 			stateComp.state = 1
 
 			if hasGraphics {
@@ -92,4 +101,6 @@ func processEvLoginPage(
 			}
 		}
 	}
+
+	return false
 }

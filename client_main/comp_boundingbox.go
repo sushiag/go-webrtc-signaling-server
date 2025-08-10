@@ -14,6 +14,13 @@ type boundingBoxComponent struct {
 	size [2]int
 }
 
+func newBBox(x, y, width, height int) boundingBoxComponent {
+	return boundingBoxComponent{
+		pos:  [2]int{x, y},
+		size: [2]int{width, height},
+	}
+}
+
 // Helper function for creating a clip.Rect in the given region
 func (bb *boundingBoxComponent) clip() clip.Rect {
 	x0 := bb.pos[0]

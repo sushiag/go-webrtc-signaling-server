@@ -28,6 +28,7 @@ func main() {
 		appState := appState{}
 		system := newSystem()
 		textShaper := text.NewShaper(text.WithCollection(gofont.Collection()))
+		appState.colorPalette = makeColorPalette(system)
 
 		initLoginPageEntities(&appState, system)
 
@@ -63,6 +64,7 @@ func handleWindowEvents(
 				case apploginPage:
 					layoutLoginPage(gtx, sys, appState.login)
 				case appMainPage:
+					layoutMainPage(gtx, sys, appState.main)
 				}
 
 				captureGlobalEvents(gtx, appState, sys)
@@ -107,10 +109,12 @@ func captureAndProcessEvents(
 
 			switch appState.currentPage {
 			case apploginPage:
-				processEvLoginPage(gtx, &appState.focus, ev, sys, entity)
-			case appMainPage:
-				{
+				pageChanged := processEvLoginPage(gtx, appState, ev, sys, entity)
+				if pageChanged {
+					return
 				}
+			case appMainPage:
+				processEvMainPage(gtx, appState, ev, sys, entity)
 			default:
 				log.Println("[WARN] no event handler set for the current page:", appState.currentPage)
 			}

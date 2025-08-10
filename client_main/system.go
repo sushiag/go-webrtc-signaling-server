@@ -21,6 +21,11 @@ type components[T any] struct {
 	compEntity []entity
 }
 
+func (c *components[T]) reset() {
+	c.comps = c.comps[:0]
+	c.compEntity = c.compEntity[:0]
+}
+
 func (c components[T]) len() int {
 	return len(c.comps)
 }
@@ -77,6 +82,14 @@ func newSystem() system {
 		interactables: &interactables,
 		graphics:      &graphics,
 	}
+}
+
+func (sys *system) reset() {
+	*sys.db = (*sys.db)[:0]
+	sys.states.reset()
+	sys.bboxes.reset()
+	sys.interactables.reset()
+	sys.graphics.reset()
 }
 
 func (sys *system) nextEntity() entity {

@@ -29,4 +29,8 @@ type loginPageState struct {
 }
 
 type mainPageState struct {
+	logoDisp      entity
+	usernameDisp  entity
+	serversButton entity
+	messageButton entity
 }
