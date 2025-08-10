@@ -41,52 +41,47 @@ const (
 	txtInputStateFocused
 )
 
-func (g stateComponent) ptrInteraction(eventKind pointer.Kind) state {
-	switch g.kind {
+func (s *stateComponent) handlePtrInteraction(eventKind pointer.Kind) {
+	switch s.kind {
 	case bundleButton:
-		return g.processBtnPtrEvent(eventKind)
+		s.handleBtnPtrEvent(eventKind)
 	case bundleTextInput:
-		return g.processTextInputPtrEvent(eventKind)
+		s.handleTextInputPtrEvent(eventKind)
 	default:
-		log.Panicln("[ERR] ptrInteraction function not defined for bundle:", g.kind)
-		return 0
+		log.Panicln("[ERR] ptrInteraction function not defined for bundle:", s.kind)
 	}
 }
 
-func (s stateComponent) processBtnPtrEvent(event pointer.Kind) buttonState {
+func (s *stateComponent) handleBtnPtrEvent(event pointer.Kind) {
 	switch event {
 	case pointer.Press:
-		return btnStatePressed
+		s.state = btnStatePressed
 	case pointer.Enter:
-		return btnStateHovered
+		s.state = btnStateHovered
 	case pointer.Leave:
-		return btnStateIdle
+		s.state = btnStateIdle
 	case pointer.Release:
 		// TODO: we need to check if the pointer is still inside the
 		// box when released
-		return btnStateHovered
-	default:
-		return s.state
+		s.state = btnStateHovered
 	}
 }
 
-func (s stateComponent) processTextInputPtrEvent(event pointer.Kind) textInputState {
+func (s *stateComponent) handleTextInputPtrEvent(event pointer.Kind) {
 	switch event {
 	case pointer.Press:
-		return txtInputStateFocused
+		s.state = txtInputStateFocused
 	case pointer.Enter:
 		if s.state == txtInputStateFocused {
-			return s.state
+			s.state = s.state
 		} else {
-			return txtInputStateHovered
+			s.state = txtInputStateHovered
 		}
 	case pointer.Leave:
 		if s.state == txtInputStateFocused {
-			return s.state
+			s.state = s.state
 		} else {
-			return txtInputStateIdle
+			s.state = txtInputStateIdle
 		}
-	default:
-		return s.state
 	}
 }

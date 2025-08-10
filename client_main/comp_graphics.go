@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"image/color"
 	"log"
 
 	"gioui.org/layout"
@@ -130,7 +131,14 @@ func drawTextInput(
 		MaxWidth:  int(bb.size[0]),
 	}
 
-	drawCalls, _, height := renderText(gtx, textShaper, textParams, g.text, colorPalette[g.textColor], unit.Sp(textSize))
+	var textColor color.NRGBA
+	if g.text == g.placeholderText {
+		textColor = colorPalette[g.textColors[txtInputDisabled]]
+	} else {
+		textColor = colorPalette[g.textColor]
+	}
+
+	drawCalls, _, height := renderText(gtx, textShaper, textParams, g.text, textColor, unit.Sp(textSize))
 
 	yOffset := (float64(bb.size[1]) - height) / 2.5
 	offset := image.Point{X: bb.pos[0], Y: bb.pos[1] + int(yOffset)}

@@ -7,7 +7,6 @@ import (
 	"gioui.org/app"
 	"gioui.org/font/gofont"
 	"gioui.org/io/event"
-	"gioui.org/io/key"
 	gioSys "gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -66,7 +65,7 @@ func handleWindowEvents(
 				case appMainPage:
 				}
 
-				captureGlobalKeyEvents(gtx, appState, sys)
+				captureGlobalEvents(gtx, appState, sys)
 				captureAndProcessEvents(
 					gtx,
 					appState,
@@ -82,55 +81,6 @@ func handleWindowEvents(
 	}
 }
 
-func captureGlobalKeyEvents(gtx layout.Context, appState *appState, sys system) {
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	event.Op(gtx.Ops, appState)
-
-	keyFilter := key.Filter{
-		Focus:    nil,
-		Required: 0,
-		Optional: key.ModCtrl,
-		Name:     "",
-	}
-	for {
-		ev, ok := gtx.Event(keyFilter)
-		if !ok {
-			break
-		}
-
-		keyEv, ok := ev.(key.Event)
-		if !ok {
-			return
-		}
-
-		if keyEv.State == key.Press && keyEv.Modifiers&key.ModCtrl != 0 {
-			// toggle color palette
-			if g, ok := sys.tryGetGraphicsComponentRef(appState.colorPalette); ok {
-				g.isDisabled = !g.isDisabled
-			}
-		}
-
-	}
-
-	if appState.hasFocusedInput {
-		for {
-			ev, ok := gtx.Event(key.FocusFilter{Target: appState.focusedInput})
-			if !ok {
-				break
-			}
-
-			editEv, ok := ev.(key.EditEvent)
-			if !ok {
-				return
-			}
-
-			if g, ok := sys.tryGetGraphicsComponentRef(appState.focusedInput); ok {
-				g.text += editEv.Text
-			}
-		}
-	}
-}
-
 func captureAndProcessEvents(
 	gtx layout.Context,
 	appState *appState,
@@ -140,24 +90,30 @@ func captureAndProcessEvents(
 
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	filters := make([]event.Filter, 0, 2)
+	filters := make([]event.Filter, 0, 4)
 	for idx, iComp := range interactables {
 		if iComp.isDisabled {
 			continue
 		}
 		entity := (*sys.interactablesEntity)[idx]
-		stateComponent := sys.getStateComponentRef(entity)
 
 		filters = iComp.getEventFilters(filters)
 
-		switch appState.currentPage {
-		case apploginPage:
-			processEvLoginPage(gtx, appState, filters, sys, stateComponent, entity)
-		case appMainPage:
-			{
+		for {
+			ev, ok := gtx.Event(filters...)
+			if !ok {
+				break
 			}
-		default:
-			log.Println("[WARN] no event handler set for the current page:", appState.currentPage)
+
+			switch appState.currentPage {
+			case apploginPage:
+				processEvLoginPage(gtx, &appState.focus, ev, sys, entity)
+			case appMainPage:
+				{
+				}
+			default:
+				log.Println("[WARN] no event handler set for the current page:", appState.currentPage)
+			}
 		}
 
 		filters = filters[:0]
@@ -191,6 +147,7 @@ func drawGraphics(
 		}
 
 		entity := (*sys.graphicsEntity)[idx]
+
 		bbox := sys.getBBoxComponent(entity)
 
 		g.draw(gtx, bbox, textShaper)

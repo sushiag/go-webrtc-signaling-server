@@ -7,7 +7,7 @@ import (
 func layoutLoginPage(
 	gtx layout.Context,
 	sys system,
-	loginPage loginPageMetadata,
+	loginPage loginPageState,
 ) {
 	windowBB := bbFromGtx(gtx)
 	title := sys.getBBoxComponentRef(loginPage.loginTitle)
