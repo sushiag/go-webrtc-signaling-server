@@ -21,13 +21,11 @@ type focusState struct {
 }
 
 type loginPageState struct {
-	textInputText     string
-	passwordInputText string
-	loginTitle        entity
-	usernameInput     entity
-	passwordInput     entity
-	loginBtn          entity
-	signupBtn         entity
+	loginTitle    entity
+	usernameInput entity
+	passwordInput entity
+	loginBtn      entity
+	signupBtn     entity
 }
 
 type mainPageState struct {

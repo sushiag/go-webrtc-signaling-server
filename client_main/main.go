@@ -91,11 +91,11 @@ func captureAndProcessEvents(
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	filters := make([]event.Filter, 0, 4)
-	for idx, iComp := range interactables {
+	for idx, iComp := range interactables.comps {
 		if iComp.isDisabled {
 			continue
 		}
-		entity := (*sys.interactablesEntity)[idx]
+		entity := sys.interactables.getEntity(idx)
 
 		filters = iComp.getEventFilters(filters)
 
@@ -121,12 +121,12 @@ func captureAndProcessEvents(
 }
 
 func declareEventRegions(gtx layout.Context, sys system) {
-	for idx, iComp := range *sys.interactables {
+	for idx, iComp := range sys.interactables.comps {
 		if iComp.isDisabled {
 			continue
 		}
 
-		entity := (*sys.interactablesEntity)[idx]
+		entity := sys.interactables.getEntity(idx)
 		bboxComp := sys.getBBoxComponent(entity)
 
 		iComp.declareEventRegion(gtx, bboxComp)
@@ -141,12 +141,12 @@ func drawGraphics(
 	// fill background color
 	paint.Fill(gtx.Ops, colorPalette[colorPurpleDark])
 
-	for idx, g := range *sys.graphics {
+	for idx, g := range sys.graphics.comps {
 		if g.isDisabled {
 			continue
 		}
 
-		entity := (*sys.graphicsEntity)[idx]
+		entity := sys.graphics.getEntity(idx)
 
 		bbox := sys.getBBoxComponent(entity)
 

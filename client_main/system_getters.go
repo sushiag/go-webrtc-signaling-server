@@ -8,7 +8,7 @@ func (sys system) getStateComponent(e entity) (stateComponent, bool) {
 	row := (*sys.db)[e]
 
 	if row.flags&flagState != 0 {
-		comp = (*sys.states)[row.components[compKindState]]
+		comp = sys.states.comps[row.components[compKindState]]
 		return comp, true
 	} else {
 		return comp, false
@@ -21,7 +21,7 @@ func (sys *system) getStateComponentRef(e entity) *stateComponent {
 	row := (*sys.db)[e]
 
 	if row.flags&flagState != 0 {
-		comp = &(*sys.states)[row.components[compKindState]]
+		comp = &sys.states.comps[row.components[compKindState]]
 	} else {
 		log.Panicln("entity has no state component:", e)
 	}
@@ -36,7 +36,7 @@ func (sys system) getBBoxComponent(e entity) boundingBoxComponent {
 	row := db[e]
 
 	if row.flags&flagBBox != 0 {
-		comp = (*sys.bboxes)[row.components[compKindBBox]]
+		comp = sys.bboxes.comps[row.components[compKindBBox]]
 	} else {
 		log.Panicln("entity has no bounding box component:", e)
 	}
@@ -51,7 +51,7 @@ func (sys *system) getBBoxComponentRef(e entity) *boundingBoxComponent {
 	row := db[e]
 
 	if row.flags&flagBBox != 0 {
-		comp = &(*sys.bboxes)[row.components[compKindBBox]]
+		comp = &sys.bboxes.comps[row.components[compKindBBox]]
 	} else {
 		log.Panicln("entity has no bounding box component:", e)
 	}
@@ -65,7 +65,7 @@ func (sys system) getInteractableComponent(e entity) (interactableComponent, boo
 	row := (*sys.db)[e]
 
 	if row.flags&flagInteractable != 0 {
-		comp = (*sys.interactables)[row.components[compKindInteractable]]
+		comp = sys.interactables.comps[row.components[compKindInteractable]]
 		return comp, true
 	} else {
 		return comp, false
@@ -78,7 +78,7 @@ func (sys *system) tryGetGraphicsComponentRef(e entity) (*graphicsComponent, uin
 
 	if row.flags&flagGraphics != 0 {
 		idx := row.components[compKindGraphics]
-		comp := &(*sys.graphics)[idx]
+		comp := &sys.graphics.comps[idx]
 		return comp, idx, true
 	} else {
 		return nil, 0, false

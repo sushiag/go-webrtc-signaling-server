@@ -9,18 +9,36 @@ import (
 type entity = uint32
 
 type system struct {
-	db           *[]systemDBEntry
-	states       *[]stateComponent
-	statesEntity *[]entity
+	db            *[]systemDBEntry
+	states        *components[stateComponent]
+	bboxes        *components[boundingBoxComponent]
+	interactables *components[interactableComponent]
+	graphics      *components[graphicsComponent]
+}
 
-	bboxes       *[]boundingBoxComponent
-	bboxesEntity *[]entity
+type components[T any] struct {
+	comps      []T
+	compEntity []entity
+}
 
-	interactables       *[]interactableComponent
-	interactablesEntity *[]entity
+func (c components[T]) len() int {
+	return len(c.comps)
+}
 
-	graphics       *[]graphicsComponent
-	graphicsEntity *[]entity
+func (c *components[T]) append(e entity, comp T) {
+	c.comps = append(c.comps, comp)
+	c.compEntity = append(c.compEntity, e)
+}
+
+func newComponents[T any](initialCapacity int) components[T] {
+	return components[T]{
+		comps:      make([]T, 0, initialCapacity),
+		compEntity: make([]entity, 0, initialCapacity),
+	}
+}
+
+func (comps components[T]) getEntity(idx int) entity {
+	return comps.compEntity[idx]
 }
 
 type systemDBEntry struct {
@@ -48,24 +66,16 @@ const (
 func newSystem() system {
 	const initCapacity = 8
 	db := make([]systemDBEntry, 0, initCapacity)
-	states := make([]stateComponent, 0, initCapacity)
-	statesEntity := make([]entity, 0, initCapacity)
-	bboxes := make([]boundingBoxComponent, 0, initCapacity)
-	bboxesEntity := make([]entity, 0, initCapacity)
-	interactables := make([]interactableComponent, 0, initCapacity)
-	interactablesEntity := make([]entity, 0, initCapacity)
-	graphics := make([]graphicsComponent, 0, initCapacity)
-	graphicsEntity := make([]entity, 0, initCapacity)
+	states := newComponents[stateComponent](initCapacity)
+	bboxes := newComponents[boundingBoxComponent](initCapacity)
+	interactables := newComponents[interactableComponent](initCapacity)
+	graphics := newComponents[graphicsComponent](initCapacity)
 	return system{
-		db:                  &db,
-		states:              &states,
-		statesEntity:        &statesEntity,
-		bboxes:              &bboxes,
-		bboxesEntity:        &bboxesEntity,
-		interactables:       &interactables,
-		interactablesEntity: &interactablesEntity,
-		graphics:            &graphics,
-		graphicsEntity:      &graphicsEntity,
+		db:            &db,
+		states:        &states,
+		bboxes:        &bboxes,
+		interactables: &interactables,
+		graphics:      &graphics,
 	}
 }
 
@@ -81,41 +91,37 @@ func (sys *system) newEntity(components ...any) entity {
 	for _, comp := range components {
 		switch c := comp.(type) {
 		case stateComponent:
-			idx := len(*sys.states)
+			idx := sys.states.len()
 			if idx > math.MaxUint16 {
 				log.Panicf("max number of state components reached")
 			}
 			row.components[compKindState] = uint16(idx)
 			row.flags |= flagState
-			*sys.states = append(*sys.states, c)
-			*sys.statesEntity = append(*sys.statesEntity, e)
+			sys.states.append(e, c)
 		case boundingBoxComponent:
-			idx := len(*sys.bboxes)
+			idx := sys.bboxes.len()
 			if idx > math.MaxUint16 {
 				log.Panicf("max number of bounding box components reached")
 			}
 			row.components[compKindBBox] = uint16(idx)
 			row.flags |= flagBBox
-			*sys.bboxes = append(*sys.bboxes, c)
-			*sys.bboxesEntity = append(*sys.bboxesEntity, e)
+			sys.bboxes.append(e, c)
 		case interactableComponent:
-			idx := len(*sys.interactables)
+			idx := sys.interactables.len()
 			if idx > math.MaxUint16 {
 				log.Panicf("max number of interactable components reached")
 			}
 			row.components[compKindInteractable] = uint16(idx)
 			row.flags |= flagInteractable
-			*sys.interactables = append(*sys.interactables, c)
-			*sys.interactablesEntity = append(*sys.interactablesEntity, e)
+			sys.interactables.append(e, c)
 		case graphicsComponent:
-			idx := len(*sys.graphics)
+			idx := sys.graphics.len()
 			if idx > math.MaxUint16 {
 				log.Panicf("max number of graphics components reached")
 			}
 			row.components[compKindGraphics] = uint16(idx)
 			row.flags |= flagGraphics
-			*sys.graphics = append(*sys.graphics, c)
-			*sys.graphicsEntity = append(*sys.graphicsEntity, e)
+			sys.graphics.append(e, c)
 		default:
 			log.Panicln("invalid component type:", reflect.TypeOf(comp))
 		}
