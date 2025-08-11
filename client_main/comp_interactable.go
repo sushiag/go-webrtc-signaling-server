@@ -11,7 +11,6 @@ type interactableComponent struct {
 	ptrEvFlags pointer.Kind
 	tag        entity
 	focusable  bool
-	keyEv      bool
 	isDisabled bool
 }
 
@@ -20,7 +19,7 @@ func (c interactableComponent) declareEventRegion(gtx layout.Context, bbox bound
 	event.Op(gtx.Ops, c.tag)
 }
 
-func (c interactableComponent) getEventFilters(filters []event.Filter) []event.Filter {
+func (c interactableComponent) getEventFilters(filters *[]event.Filter) {
 	if c.ptrEvFlags != 0 {
 		pointerFilter := pointer.Filter{
 			Target:  c.tag,
@@ -28,21 +27,11 @@ func (c interactableComponent) getEventFilters(filters []event.Filter) []event.F
 			ScrollX: pointer.ScrollRange{Min: -100, Max: 100},
 			ScrollY: pointer.ScrollRange{Min: -100, Max: 100},
 		}
-		filters = append(filters, pointerFilter)
-	}
-
-	if c.keyEv {
-		keyFilter := key.Filter{
-			Focus:    nil,
-			Required: 0,
-			Optional: 0,
-			Name:     "",
-		}
-		filters = append(filters, keyFilter)
+		*filters = append(*filters, pointerFilter)
 	}
 
 	if c.focusable {
-		filters = append(filters,
+		*filters = append(*filters,
 			key.FocusFilter{Target: c.tag},
 			key.Filter{
 				Focus:    c.tag,
@@ -52,6 +41,4 @@ func (c interactableComponent) getEventFilters(filters []event.Filter) []event.F
 			},
 		)
 	}
-
-	return filters
 }

@@ -13,6 +13,7 @@ type appPage = uint8
 const (
 	apploginPage appPage = iota
 	appMainPage
+	_nAppPages
 )
 
 type focusState struct {

@@ -59,17 +59,19 @@ func (sys *system) getBBoxComponentRef(e entity) *boundingBoxComponent {
 	return comp
 }
 
-func (sys system) getInteractableComponent(e entity) (interactableComponent, bool) {
-	var comp interactableComponent
+func (sys *system) getGraphicsComponentRef(e entity) *graphicsComponent {
+	db := *(sys.db)
+	row := db[e]
 
-	row := (*sys.db)[e]
-
-	if row.flags&flagInteractable != 0 {
-		comp = sys.interactables.comps[row.components[compKindInteractable]]
-		return comp, true
-	} else {
-		return comp, false
+	if row.flags&flagGraphics != 0 {
+		idx := row.components[compKindGraphics]
+		comp := &sys.graphics.comps[idx]
+		return comp
 	}
+
+	log.Panicf("[ERR] entity is missing a graphics component:", e)
+
+	return nil
 }
 
 func (sys *system) tryGetGraphicsComponentRef(e entity) (*graphicsComponent, uint16, bool) {

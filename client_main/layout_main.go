@@ -6,9 +6,11 @@ import (
 
 func layoutMainPage(
 	gtx layout.Context,
+	app *appState,
 	sys system,
-	mainPage mainPageState,
 ) {
+	mainPage := &app.main
+
 	windowBB := bbFromGtx(gtx)
 	logo := sys.getBBoxComponentRef(mainPage.logoDisp)
 	username := sys.getBBoxComponentRef(mainPage.usernameDisp)

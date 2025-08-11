@@ -8,7 +8,6 @@ import (
 )
 
 func captureGlobalEvents(gtx layout.Context, app *appState, sys system) {
-	// NOTE: captured events get consumed!
 	if app.focus.hasFocusedInput {
 		return
 	}

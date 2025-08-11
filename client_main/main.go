@@ -1,25 +1,25 @@
 package main
 
 import (
-	"log"
 	"os"
 
-	"gioui.org/app"
+	gioApp "gioui.org/app"
 	"gioui.org/font/gofont"
 	"gioui.org/io/event"
 	gioSys "gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
 )
 
+var globalTextShaper *text.Shaper
+
 func main() {
 	go func() {
-		window := new(app.Window)
-		window.Option(func(m unit.Metric, c *app.Config) {
+		window := new(gioApp.Window)
+		window.Option(func(m unit.Metric, c *gioApp.Config) {
 			c.Title = "chatapp"
 			c.Focused = true
 		})
@@ -27,54 +27,59 @@ func main() {
 
 		appState := appState{}
 		system := newSystem()
-		textShaper := text.NewShaper(text.WithCollection(gofont.Collection()))
+		globalTextShaper = text.NewShaper(text.WithCollection(gofont.Collection()))
 		appState.colorPalette = makeColorPalette(system)
 
 		initLoginPageEntities(&appState, system)
 
-		handleWindowEvents(window, system, textShaper, &appState)
+		handleWindowEvents(window, system, &appState)
 
 		os.Exit(0)
 	}()
-	app.Main()
+	gioApp.Main()
 }
 
 // Starts a blocking loop that will handle window events
 func handleWindowEvents(
-	window *app.Window,
+	window *gioApp.Window,
 	sys system,
-	textShaper *text.Shaper,
-	appState *appState,
+	app *appState,
 ) error {
 	var ops op.Ops
+
+	// layout functions
+	layoutPage := [_nAppPages]func(layout.Context, *appState, system){
+		layoutLoginPage,
+		layoutMainPage,
+	}
+
+	// event processing functions
+	var eventFilters = make([]event.Filter, 0, 4)
+	var processEvent = [_nAppPages]func(layout.Context, *appState, system, *[]event.Filter){
+		processEvLoginPage,
+		processEvMainPage,
+	}
 
 	for {
 		ev := window.Event()
 		switch ev := ev.(type) {
-		case app.DestroyEvent:
+		case gioApp.DestroyEvent:
 			return ev.Err
 
-		case app.FrameEvent:
+		case gioApp.FrameEvent:
 			{
 				// reset the operations (required by gio)
-				gtx := app.NewContext(&ops, ev)
+				gtx := gioApp.NewContext(&ops, ev)
 
-				// layout step
-				switch appState.currentPage {
-				case apploginPage:
-					layoutLoginPage(gtx, sys, appState.login)
-				case appMainPage:
-					layoutMainPage(gtx, sys, appState.main)
-				}
+				layoutPage[app.currentPage](gtx, app, sys)
 
-				captureGlobalEvents(gtx, appState, sys)
-				captureAndProcessEvents(
-					gtx,
-					appState,
-					sys,
-				)
+				processEvent[app.currentPage](gtx, app, sys, &eventFilters)
+
+				captureGlobalEvents(gtx, app, sys)
+
+				drawGraphics(gtx, sys)
+
 				declareEventRegions(gtx, sys)
-				drawGraphics(gtx, sys, textShaper)
 
 				// update the display
 				ev.Frame(gtx.Ops)
@@ -83,70 +88,28 @@ func handleWindowEvents(
 	}
 }
 
-func captureAndProcessEvents(
-	gtx layout.Context,
-	appState *appState,
-	sys system,
-) {
-	interactables := *sys.interactables
-
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-
-	filters := make([]event.Filter, 0, 4)
-	for idx, iComp := range interactables.comps {
-		if iComp.isDisabled {
-			continue
-		}
-		entity := sys.interactables.getEntity(idx)
-
-		filters = iComp.getEventFilters(filters)
-
-		for {
-			ev, ok := gtx.Event(filters...)
-			if !ok {
-				break
-			}
-
-			switch appState.currentPage {
-			case apploginPage:
-				pageChanged := processEvLoginPage(gtx, appState, ev, sys, entity)
-				if pageChanged {
-					return
-				}
-			case appMainPage:
-				processEvMainPage(gtx, appState, ev, sys, entity)
-			default:
-				log.Println("[WARN] no event handler set for the current page:", appState.currentPage)
-			}
-		}
-
-		filters = filters[:0]
-	}
-}
-
 func declareEventRegions(gtx layout.Context, sys system) {
-	for idx, iComp := range sys.interactables.comps {
-		if iComp.isDisabled {
+	for idx, iteractable := range sys.interactables.comps {
+		if iteractable.isDisabled {
 			continue
 		}
 
 		entity := sys.interactables.getEntity(idx)
-		bboxComp := sys.getBBoxComponent(entity)
+		bbox := sys.getBBoxComponent(entity)
 
-		iComp.declareEventRegion(gtx, bboxComp)
+		iteractable.declareEventRegion(gtx, bbox)
 	}
 }
 
 func drawGraphics(
 	gtx layout.Context,
 	sys system,
-	textShaper *text.Shaper,
 ) {
 	// fill background color
 	paint.Fill(gtx.Ops, colorPalette[colorPurpleDark])
 
-	for idx, g := range sys.graphics.comps {
-		if g.isDisabled {
+	for idx, graphicsComp := range sys.graphics.comps {
+		if graphicsComp.isDisabled {
 			continue
 		}
 
@@ -154,6 +117,6 @@ func drawGraphics(
 
 		bbox := sys.getBBoxComponent(entity)
 
-		g.draw(gtx, bbox, textShaper)
+		graphicsComp.draw(gtx, bbox, globalTextShaper)
 	}
 }

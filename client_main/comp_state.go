@@ -1,16 +1,14 @@
 package main
 
 import (
-	"log"
-
 	"gioui.org/io/pointer"
 )
 
 type state = uint8
 
 type stateComponent struct {
-	kind  bundleKind
-	state uint8
+	bundleKind bundleKind
+	state      state
 }
 
 type buttonState = uint8
@@ -41,47 +39,44 @@ const (
 	txtInputStateFocused
 )
 
-func (s *stateComponent) handlePtrInteraction(eventKind pointer.Kind) {
-	switch s.kind {
-	case bundleButton:
-		s.handleBtnPtrEvent(eventKind)
-	case bundleTextInput:
-		s.handleTextInputPtrEvent(eventKind)
-	default:
-		log.Panicln("[ERR] ptrInteraction function not defined for bundle:", s.kind)
+func getNextBtnState(currentState state, event pointer.Event) state {
+	if currentState == btnStateDisabled {
+		return currentState
 	}
-}
 
-func (s *stateComponent) handleBtnPtrEvent(event pointer.Kind) {
-	switch event {
+	switch event.Kind {
 	case pointer.Press:
-		s.state = btnStatePressed
+		return btnStatePressed
 	case pointer.Enter:
-		s.state = btnStateHovered
+		return btnStateHovered
 	case pointer.Leave:
-		s.state = btnStateIdle
+		return btnStateIdle
 	case pointer.Release:
 		// TODO: we need to check if the pointer is still inside the
 		// box when released
-		s.state = btnStateHovered
+		return btnStateHovered
 	}
+
+	return currentState
 }
 
-func (s *stateComponent) handleTextInputPtrEvent(event pointer.Kind) {
-	switch event {
+func getNextTxtInputState(currentState state, event pointer.Event) state {
+	if currentState == txtInputDisabled {
+		return currentState
+	}
+
+	switch event.Kind {
 	case pointer.Press:
-		s.state = txtInputStateFocused
+		return txtInputStateFocused
 	case pointer.Enter:
-		if s.state == txtInputStateFocused {
-			s.state = s.state
-		} else {
-			s.state = txtInputStateHovered
+		if currentState != txtInputStateFocused {
+			return txtInputStateHovered
 		}
 	case pointer.Leave:
-		if s.state == txtInputStateFocused {
-			s.state = s.state
-		} else {
-			s.state = txtInputStateIdle
+		if currentState != txtInputStateFocused {
+			return txtInputStateIdle
 		}
 	}
+
+	return currentState
 }

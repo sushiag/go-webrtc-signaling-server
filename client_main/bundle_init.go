@@ -34,7 +34,7 @@ func makeButton(
 	sys system,
 	config buttonConfig,
 ) entity {
-	stateComp := stateComponent{kind: bundleButton, state: config.initState}
+	stateComp := stateComponent{bundleKind: bundleButton, state: config.initState}
 
 	boundingBox := boundingBoxComponent{size: [2]int{config.width, config.height}}
 
@@ -61,7 +61,7 @@ func makeTextInput(
 	sys system,
 	config textInputConfig,
 ) entity {
-	stateComp := stateComponent{kind: bundleTextInput, state: config.initState}
+	stateComp := stateComponent{bundleKind: bundleTextInput, state: config.initState}
 
 	bboxComp := boundingBoxComponent{size: [2]int{config.width, config.height}}
 
